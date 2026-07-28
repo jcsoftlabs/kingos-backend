@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import Fastify, { type FastifyError } from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
@@ -74,6 +75,31 @@ app.setErrorHandler((erreur: FastifyError | ErreurMetier | ZodError, requete, re
 app.get("/sante", async () => {
   await db.$queryRaw`SELECT 1`;
   return { succes: true, donnees: { statut: "ok", horodatage: new Date().toISOString() } };
+});
+
+// Vérifie que la requête vient bien du BFF Next.js (plan §1.2) — sans ce
+// contrôle, JETON_SERVICE n'était qu'une variable d'environnement lue mais
+// jamais appliquée : n'importe qui pouvait appeler l'API Railway directement.
+// /sante (sonde Railway) et les futurs webhooks fournisseurs (signature
+// propre à chaque fournisseur, pas ce jeton) restent en dehors du contrôle.
+const CHEMINS_SANS_JETON = new Set(["/sante"]);
+
+app.addHook("preHandler", async (requete, reponse) => {
+  if (CHEMINS_SANS_JETON.has(requete.url.split("?")[0]!) || requete.url.startsWith("/api/webhooks/")) {
+    return;
+  }
+
+  const jetonRecu = requete.headers["x-jeton-service"];
+  const attendu = Buffer.from(env.JETON_SERVICE);
+  const recu = Buffer.from(typeof jetonRecu === "string" ? jetonRecu : "");
+
+  const valide = attendu.length === recu.length && timingSafeEqual(attendu, recu);
+  if (!valide) {
+    return reponse.code(401).send({
+      succes: false,
+      erreur: { code: "NON_AUTORISE", message: "Jeton de service invalide" },
+    });
+  }
 });
 
 await app.register(routesCatalogue);
