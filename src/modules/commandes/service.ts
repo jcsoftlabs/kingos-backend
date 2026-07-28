@@ -4,6 +4,7 @@ import { ErreurNonTrouve, ErreurValidation } from "../../core/erreurs.js";
 import { prochainNumero } from "../../core/numerotation.js";
 import { simulerPrixAvecService } from "../catalogue/simulation.js";
 import { verifierTransition } from "./machine-etats.js";
+import { envoyerConfirmationCommande } from "../../core/email.js";
 import type { StatutCommande } from "@prisma/client";
 
 const schemaLigne = z.object({
@@ -100,6 +101,14 @@ export async function creerCommande(entree: EntreeCreationCommande, cleIdempoten
     });
 
     return creee;
+  });
+
+  // Hors transaction — un échec d'envoi ne doit jamais annuler la commande
+  // (envoyerEmail avale déjà ses propres erreurs, plan §13).
+  await envoyerConfirmationCommande({
+    destinataire: commande.emailContact,
+    numero: commande.numero,
+    nomContact: commande.nomContact,
   });
 
   return commande;

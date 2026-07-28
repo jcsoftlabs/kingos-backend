@@ -2,6 +2,8 @@ import { db } from "../../core/db.js";
 import { ErreurConflit, ErreurNonTrouve, ErreurValidation } from "../../core/erreurs.js";
 import { prochainNumero } from "../../core/numerotation.js";
 import { verifierTransition } from "../commandes/machine-etats.js";
+import { envoyerDevisEmis } from "../../core/email.js";
+import { formaterHTG, formaterDate } from "../../core/formatage.js";
 
 const VALIDITE_JOURS_DEFAUT = 15;
 
@@ -70,10 +72,10 @@ export async function genererDevisDepuisCommande(commandeId: string) {
 
   verifierTransition(commande.statut, "DEVIS_ENVOYE");
 
-  return db.$transaction(async (tx) => {
+  const devis = await db.$transaction(async (tx) => {
     const numero = await prochainNumero("DEV");
 
-    const devis = await tx.devis.create({
+    const devisCree = await tx.devis.create({
       data: {
         numero,
         commandeId,
@@ -102,8 +104,18 @@ export async function genererDevisDepuisCommande(commandeId: string) {
       },
     });
 
-    return devis;
+    return devisCree;
   });
+
+  await envoyerDevisEmis({
+    destinataire: commande.emailContact,
+    numero: devis.numero,
+    nomContact: commande.nomContact,
+    totalFormate: formaterHTG(devis.totalCents),
+    expireLe: formaterDate(devis.expireLe),
+  });
+
+  return devis;
 }
 
 export async function obtenirDevisParNumero(numero: string) {

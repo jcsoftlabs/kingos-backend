@@ -3,6 +3,23 @@ import { z } from "zod";
 import { db } from "../../core/db.js";
 import { ErreurConflit, ErreurNonTrouve, ErreurValidation } from "../../core/erreurs.js";
 import { verifierTransition } from "../commandes/machine-etats.js";
+import { envoyerPaiementConfirme } from "../../core/email.js";
+import { formaterHTG } from "../../core/formatage.js";
+
+/** Hors transaction — récupère commande + facture pour la confirmation par e-mail. */
+async function notifierPaiementConfirme(commandeId: string, factureId: string, montantCents: bigint) {
+  const [commande, facture] = await Promise.all([
+    db.commande.findUnique({ where: { id: commandeId } }),
+    db.facture.findUnique({ where: { id: factureId } }),
+  ]);
+  if (!commande || !facture) return;
+  await envoyerPaiementConfirme({
+    destinataire: commande.emailContact,
+    numeroFacture: facture.numero,
+    nomContact: commande.nomContact,
+    montantFormate: formaterHTG(montantCents),
+  });
+}
 
 export const schemaPaiementManuel = z.object({
   factureId: z.string().uuid(),
@@ -61,7 +78,7 @@ async function recalculerFacture(tx: Parameters<Parameters<typeof db.$transactio
  * faire passer une facture à PAYEE tout seul.
  */
 export async function enregistrerPaiementManuel(entree: EntreePaiementManuel) {
-  return db.$transaction(async (tx) => {
+  const paiement = await db.$transaction(async (tx) => {
     const facture = await tx.facture.findUnique({ where: { id: entree.factureId } });
     if (!facture) throw new ErreurNonTrouve("Facture", entree.factureId);
     if (facture.statut === "ANNULEE") throw new ErreurConflit(`Facture ${facture.numero} est annulée`);
@@ -128,14 +145,20 @@ export async function enregistrerPaiementManuel(entree: EntreePaiementManuel) {
 
     return paiement;
   });
+
+  if (paiement.statut === "REUSSI") {
+    await notifierPaiementConfirme(paiement.commandeId, entree.factureId, paiement.montantCents);
+  }
+
+  return paiement;
 }
 
 export async function encaisserCheque(paiementId: string, valideParId?: string) {
-  return db.$transaction(async (tx) => {
-    const paiement = await tx.paiement.findUnique({ where: { id: paiementId } });
-    if (!paiement) throw new ErreurNonTrouve("Paiement", paiementId);
-    if (paiement.statut !== "A_ENCAISSER") throw new ErreurConflit(`Paiement ${paiement.refFournisseur} n'est pas en attente d'encaissement`);
-    if (!paiement.factureId) throw new ErreurValidation("Paiement sans facture associée");
+  const { facture, paiement } = await db.$transaction(async (tx) => {
+    const paiementTrouve = await tx.paiement.findUnique({ where: { id: paiementId } });
+    if (!paiementTrouve) throw new ErreurNonTrouve("Paiement", paiementId);
+    if (paiementTrouve.statut !== "A_ENCAISSER") throw new ErreurConflit(`Paiement ${paiementTrouve.refFournisseur} n'est pas en attente d'encaissement`);
+    if (!paiementTrouve.factureId) throw new ErreurValidation("Paiement sans facture associée");
 
     await tx.paiement.update({
       where: { id: paiementId },
@@ -144,14 +167,19 @@ export async function encaisserCheque(paiementId: string, valideParId?: string) 
 
     await tx.evenementCommande.create({
       data: {
-        commandeId: paiement.commandeId,
+        commandeId: paiementTrouve.commandeId,
         type: "CHEQUE_ENCAISSE",
-        message: `Chèque n°${paiement.numeroCheque} encaissé`,
+        message: `Chèque n°${paiementTrouve.numeroCheque} encaissé`,
       },
     });
 
-    return recalculerFacture(tx, paiement.factureId);
+    const factureMiseAJour = await recalculerFacture(tx, paiementTrouve.factureId);
+    return { facture: factureMiseAJour, paiement: paiementTrouve };
   });
+
+  await notifierPaiementConfirme(paiement.commandeId, facture.id, paiement.montantCents);
+
+  return facture;
 }
 
 export async function rejeterCheque(paiementId: string, motif: string) {

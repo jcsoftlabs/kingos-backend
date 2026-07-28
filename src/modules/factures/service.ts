@@ -2,6 +2,8 @@ import { db } from "../../core/db.js";
 import { ErreurConflit, ErreurNonTrouve } from "../../core/erreurs.js";
 import { prochainNumero } from "../../core/numerotation.js";
 import { verifierTransition } from "../commandes/machine-etats.js";
+import { envoyerFactureEmise } from "../../core/email.js";
+import { formaterHTG } from "../../core/formatage.js";
 
 /**
  * Conversion devis → facture « en un clic » (plan §7.3). Idempotente au sens
@@ -10,7 +12,7 @@ import { verifierTransition } from "../commandes/machine-etats.js";
  * facture pour la même commande.
  */
 export async function convertirDevisEnFacture(devisId: string) {
-  return db.$transaction(async (tx) => {
+  const resultat = await db.$transaction(async (tx) => {
     const devis = await tx.devis.findUnique({ where: { id: devisId }, include: { commande: true } });
     if (!devis) throw new ErreurNonTrouve("Devis", devisId);
     if (devis.statut !== "ACCEPTE") {
@@ -55,8 +57,17 @@ export async function convertirDevisEnFacture(devisId: string) {
       },
     });
 
-    return facture;
+    return { facture, commande: devis.commande };
   });
+
+  await envoyerFactureEmise({
+    destinataire: resultat.commande.emailContact,
+    numero: resultat.facture.numero,
+    nomContact: resultat.commande.nomContact,
+    totalFormate: formaterHTG(resultat.facture.totalCents),
+  });
+
+  return resultat.facture;
 }
 
 export async function obtenirFactureParNumero(numero: string) {
