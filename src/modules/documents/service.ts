@@ -47,6 +47,7 @@ export async function obtenirUrlPdfFacture(numero: string): Promise<string> {
       dateEmission: facture.envoyeeLe ?? facture.creeLe,
       dateLimite: facture.echeanceLe ? { libelle: "Échéance", date: facture.echeanceLe } : null,
       contenu: facture.contenu as never,
+      statut: facture.statut,
     });
     const televerse = await televerserBuffer(buffer, {
       dossier: dossiersCloudinary.documents("factures"),
@@ -80,5 +81,6 @@ export async function genererBufferPdfFacture(factureId: string): Promise<Buffer
     dateEmission: facture.envoyeeLe ?? facture.creeLe,
     dateLimite: facture.echeanceLe ? { libelle: "Échéance", date: facture.echeanceLe } : null,
     contenu: facture.contenu as never,
+    statut: facture.statut,
   });
 }

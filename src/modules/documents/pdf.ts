@@ -1,5 +1,12 @@
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
 import PDFDocument from "pdfkit";
 import { montantHTGEnLettres } from "../../core/montant-en-lettres.js";
+
+// dist/modules/documents/pdf.js → ../../../assets/logo.png (voir Dockerfile,
+// qui copie assets/ à côté de dist/ dans l'image de production).
+const CHEMIN_LOGO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "assets", "logo.png");
 
 interface LigneContenu {
   serviceNom: string;
@@ -73,6 +80,8 @@ export function genererPdfDocument(params: {
   dateEmission: Date;
   dateLimite: { libelle: string; date: Date } | null;
   contenu: ContenuDocument;
+  /** Statut de la facture au moment de la génération — "PAYEE" affiche le tampon PAYÉ. */
+  statut?: string;
 }): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "LETTER", margin: 50 });
@@ -83,9 +92,14 @@ export function genererPdfDocument(params: {
 
     const { contenu } = params;
 
-    // En-tête
-    doc.fillColor(MARINE).fontSize(20).font("Helvetica-Bold").text("KINGO'S", 50, 50);
-    doc.fontSize(9).font("Helvetica").fillColor(GRIS).text("Design & Impression Professionnelle", 50, 74);
+    // En-tête — logo réel plutôt que le nom en texte, plus fidèle à l'identité
+    // visuelle sur un document envoyé au client (devis, facture, reçu).
+    if (existsSync(CHEMIN_LOGO)) {
+      doc.image(CHEMIN_LOGO, 50, 45, { height: 32 });
+    } else {
+      doc.fillColor(MARINE).fontSize(20).font("Helvetica-Bold").text("KINGO'S", 50, 50);
+    }
+    doc.fontSize(9).font("Helvetica").fillColor(GRIS).text("Design & Impression Professionnelle", 50, 82);
 
     doc
       .fillColor(MARINE)
@@ -223,6 +237,26 @@ export function genererPdfDocument(params: {
         715,
         { width: 512, align: "center" },
       );
+
+    // Tampon "PAYÉ" — facture réglée intégralement (statut PAYEE). Dessiné en
+    // dernier, par-dessus le reste, pour rester visible quelle que soit la
+    // longueur du contenu au-dessus.
+    if (params.statut === "PAYEE") {
+      const ROUGE = "#C41E3A";
+      doc.save();
+      doc.rotate(-18, { origin: [430, 175] });
+      doc
+        .lineWidth(3)
+        .strokeColor(ROUGE)
+        .roundedRect(340, 150, 180, 50, 6)
+        .stroke();
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(27)
+        .fillColor(ROUGE)
+        .text("PAYÉ", 340, 164, { width: 180, align: "center" });
+      doc.restore();
+    }
 
     doc.end();
   });

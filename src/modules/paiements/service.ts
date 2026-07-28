@@ -5,6 +5,7 @@ import { ErreurConflit, ErreurNonTrouve, ErreurValidation } from "../../core/err
 import { verifierTransition } from "../commandes/machine-etats.js";
 import { envoyerPaiementConfirme } from "../../core/email.js";
 import { formaterHTG } from "../../core/formatage.js";
+import { genererBufferPdfFacture } from "../documents/service.js";
 
 /** Hors transaction — récupère commande + facture pour la confirmation par e-mail. */
 async function notifierPaiementConfirme(commandeId: string, factureId: string, montantCents: bigint) {
@@ -13,11 +14,15 @@ async function notifierPaiementConfirme(commandeId: string, factureId: string, m
     db.facture.findUnique({ where: { id: factureId } }),
   ]);
   if (!commande || !facture) return;
+  // Facture intégralement payée : le client reçoit le PDF tamponné "PAYÉ" en
+  // pièce jointe, pas seulement un e-mail de confirmation sans justificatif.
+  const pdf = facture.statut === "PAYEE" ? await genererBufferPdfFacture(facture.id) : undefined;
   await envoyerPaiementConfirme({
     destinataire: commande.emailContact,
     numeroFacture: facture.numero,
     nomContact: commande.nomContact,
     montantFormate: formaterHTG(montantCents),
+    pdf,
   });
 }
 
@@ -45,10 +50,19 @@ async function recalculerFacture(tx: Parameters<Parameters<typeof db.$transactio
   const payeCents = paiements.reduce((acc, p) => acc + p.montantCents, 0n);
 
   const statut = payeCents >= facture.totalCents ? "PAYEE" : payeCents > 0n ? "PARTIELLEMENT_PAYEE" : "EMISE";
+  // Le PDF déjà généré (avant paiement complet) ne porte pas le tampon PAYÉ —
+  // on invalide le cache Cloudinary pour qu'il soit régénéré avec le tampon
+  // au prochain téléchargement (voir modules/documents/pdf.ts).
+  const nouvellementPayee = statut === "PAYEE" && facture.statut !== "PAYEE";
 
   const misAJour = await tx.facture.update({
     where: { id: factureId },
-    data: { payeCents, statut, payeeLe: statut === "PAYEE" ? new Date() : facture.payeeLe },
+    data: {
+      payeCents,
+      statut,
+      payeeLe: statut === "PAYEE" ? new Date() : facture.payeeLe,
+      ...(nouvellementPayee ? { pdfPublicId: null } : {}),
+    },
   });
 
   if (statut === "PAYEE") {

@@ -18,6 +18,7 @@ RUN addgroup -S kingos && adduser -S kingos -G kingos
 COPY --from=dependances /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
+COPY --from=build /app/assets ./assets
 COPY package.json ./
 USER kingos
 EXPOSE 4000

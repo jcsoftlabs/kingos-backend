@@ -116,7 +116,13 @@ export async function envoyerFactureEmise(params: {
   });
 }
 
-export async function envoyerPaiementConfirme(params: { destinataire: string; numeroFacture: string; nomContact: string; montantFormate: string }) {
+export async function envoyerPaiementConfirme(params: {
+  destinataire: string;
+  numeroFacture: string;
+  nomContact: string;
+  montantFormate: string;
+  pdf?: Buffer;
+}) {
   return envoyerEmail({
     destinataire: params.destinataire,
     sujet: `Paiement reçu — Facture ${params.numeroFacture} — Kingo's`,
@@ -124,8 +130,10 @@ export async function envoyerPaiementConfirme(params: { destinataire: string; nu
       "Paiement confirmé",
       `<p>Bonjour ${params.nomContact},</p>
        <p>Nous confirmons la réception de votre paiement de <strong>${params.montantFormate}</strong>
-       pour la facture <strong>${params.numeroFacture}</strong>. Merci !</p>`,
+       pour la facture <strong>${params.numeroFacture}</strong>. Merci !</p>
+       <p>Vous trouverez ci-joint votre facture acquittée.</p>`,
     ),
+    piecesJointes: params.pdf ? [{ nomFichier: `${params.numeroFacture}.pdf`, contenu: params.pdf }] : undefined,
   });
 }
 
