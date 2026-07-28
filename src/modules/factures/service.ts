@@ -4,6 +4,7 @@ import { prochainNumero } from "../../core/numerotation.js";
 import { verifierTransition } from "../commandes/machine-etats.js";
 import { envoyerFactureEmise } from "../../core/email.js";
 import { formaterHTG } from "../../core/formatage.js";
+import { genererBufferPdfFacture } from "../documents/service.js";
 
 /**
  * Conversion devis → facture « en un clic » (plan §7.3). Idempotente au sens
@@ -60,11 +61,14 @@ export async function convertirDevisEnFacture(devisId: string) {
     return { facture, commande: devis.commande };
   });
 
+  const pdf = await genererBufferPdfFacture(resultat.facture.id).catch(() => undefined);
+
   await envoyerFactureEmise({
     destinataire: resultat.commande.emailContact,
     numero: resultat.facture.numero,
     nomContact: resultat.commande.nomContact,
     totalFormate: formaterHTG(resultat.facture.totalCents),
+    pdf,
   });
 
   return resultat.facture;

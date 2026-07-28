@@ -4,6 +4,7 @@ import { prochainNumero } from "../../core/numerotation.js";
 import { verifierTransition } from "../commandes/machine-etats.js";
 import { envoyerDevisEmis } from "../../core/email.js";
 import { formaterHTG, formaterDate } from "../../core/formatage.js";
+import { genererBufferPdfDevis } from "../documents/service.js";
 
 const VALIDITE_JOURS_DEFAUT = 15;
 
@@ -107,12 +108,18 @@ export async function genererDevisDepuisCommande(commandeId: string) {
     return devisCree;
   });
 
+  // Le PDF est généré ici, dans le même flux, plutôt que différé au premier
+  // clic sur "télécharger" — le client reçoit immédiatement le document
+  // formel en pièce jointe, pas juste un lien à suivre plus tard.
+  const pdf = await genererBufferPdfDevis(devis.id).catch(() => undefined);
+
   await envoyerDevisEmis({
     destinataire: commande.emailContact,
     numero: devis.numero,
     nomContact: commande.nomContact,
     totalFormate: formaterHTG(devis.totalCents),
     expireLe: formaterDate(devis.expireLe),
+    pdf,
   });
 
   return devis;

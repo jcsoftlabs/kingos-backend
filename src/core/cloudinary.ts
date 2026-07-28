@@ -63,6 +63,26 @@ export function verifierSignatureWebhook(corpsBrut: string, timestamp: string, s
   return cloudinary.utils.verifyNotificationSignature(corpsBrut, Number(timestamp), signature);
 }
 
+/** Envoie un buffer généré côté serveur (PDF de devis/facture) — pas de signature côté client nécessaire, c'est nous qui le produisons. */
+export function televerserBuffer(buffer: Buffer, params: { dossier: string; publicId: string; accesAuthentifie?: boolean }): Promise<{ publicId: string }> {
+  return new Promise((resolve, reject) => {
+    const flux = cloudinary.uploader.upload_stream(
+      {
+        folder: params.dossier,
+        public_id: params.publicId,
+        resource_type: "raw",
+        overwrite: true,
+        ...(params.accesAuthentifie ? { access_mode: "authenticated", type: "authenticated" } : {}),
+      },
+      (erreur, resultat) => {
+        if (erreur || !resultat) return reject(erreur ?? new Error("Échec de l'envoi vers Cloudinary"));
+        resolve({ publicId: resultat.public_id });
+      },
+    );
+    flux.end(buffer);
+  });
+}
+
 /** URL signée à courte durée pour livrer un fichier privé (documents, fichiers clients). */
 export function urlSigneeTemporaire(publicId: string, options?: { typeRessource?: "image" | "raw"; nomTelechargement?: string; dureeSecondes?: number }) {
   const expireLe = Math.floor(Date.now() / 1000) + (options?.dureeSecondes ?? 24 * 3600);
