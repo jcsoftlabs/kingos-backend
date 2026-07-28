@@ -18,6 +18,16 @@ export type EntreeSimulation = z.infer<typeof schemaSimulation>;
  * Seule source de vérité : aucun calcul de prix ne doit exister côté navigateur.
  */
 export async function simulerPrix(entree: EntreeSimulation) {
+  const { resultat } = await simulerPrixAvecService(entree);
+  return resultat;
+}
+
+/**
+ * Variante utilisée par le module commandes : renvoie aussi le service chargé,
+ * pour construire une LigneCommande (nom figé, surface, etc.) sans recharger
+ * deux fois le catalogue.
+ */
+export async function simulerPrixAvecService(entree: EntreeSimulation) {
   const service = await db.service.findUnique({
     where: { slug: entree.serviceSlug },
     include: { attributs: { include: { options: true } }, paliers: { orderBy: { quantiteMin: "asc" } } },
@@ -54,7 +64,7 @@ export async function simulerPrix(entree: EntreeSimulation) {
     if (!entree.largeurPouces || !entree.hauteurPouces) {
       throw new ErreurValidation("Largeur et hauteur requises pour ce service");
     }
-    return calculerPrix({
+    const resultat = calculerPrix({
       mode: "SURFACE",
       largeurPouces: entree.largeurPouces,
       hauteurPouces: entree.hauteurPouces,
@@ -72,10 +82,12 @@ export async function simulerPrix(entree: EntreeSimulation) {
           }
         : null,
     });
+    const surfaceFt2 = (entree.largeurPouces * entree.hauteurPouces) / 144;
+    return { service, resultat, surfaceFt2 };
   }
 
   if (service.mode === "QUANTITE") {
-    return calculerPrix({
+    const resultat = calculerPrix({
       mode: "QUANTITE",
       quantite: entree.quantite,
       prixBaseCents: service.prixBaseCents,
@@ -90,10 +102,12 @@ export async function simulerPrix(entree: EntreeSimulation) {
           }
         : null,
     });
+    return { service, resultat, surfaceFt2: null };
   }
 
   if (service.mode === "FORFAIT") {
-    return calculerPrix({ mode: "FORFAIT", quantite: entree.quantite, prixBaseCents: service.prixBaseCents });
+    const resultat = calculerPrix({ mode: "FORFAIT", quantite: entree.quantite, prixBaseCents: service.prixBaseCents });
+    return { service, resultat, surfaceFt2: null };
   }
 
   // SUR_DEVIS : aucun calcul automatique — le client doit demander un devis manuel.

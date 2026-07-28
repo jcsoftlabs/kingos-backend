@@ -2,12 +2,15 @@ import Fastify, { type FastifyError } from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
+import { ZodError } from "zod";
 import { env } from "./core/env.js";
 import { journal } from "./core/journalisation.js";
 import { db } from "./core/db.js";
 import { ErreurMetier } from "./core/erreurs.js";
 import { routesCatalogue } from "./modules/catalogue/routes.js";
 import { routesFichiers } from "./modules/fichiers/routes.js";
+import { routesCommandes } from "./modules/commandes/routes.js";
+import { routesDevis } from "./modules/devis/routes.js";
 
 // Fastify (via JSON.stringify) ne sait pas sérialiser BigInt nativement, et les
 // montants sont des BigInt partout (plan §2.1 règle 2). Un BigInt.prototype.toJSON
@@ -28,11 +31,18 @@ await app.register(cors, {
 });
 await app.register(rateLimit, { max: 100, timeWindow: "1 minute" });
 
-app.setErrorHandler((erreur: FastifyError | ErreurMetier, requete, reponse) => {
+app.setErrorHandler((erreur: FastifyError | ErreurMetier | ZodError, requete, reponse) => {
   if (erreur instanceof ErreurMetier) {
     return reponse.code(erreur.statut).send({
       succes: false,
       erreur: { code: erreur.code, message: erreur.message, details: erreur.details },
+    });
+  }
+
+  if (erreur instanceof ZodError) {
+    return reponse.code(422).send({
+      succes: false,
+      erreur: { code: "VALIDATION", message: "Requête invalide", details: erreur.flatten() },
     });
   }
 
@@ -57,6 +67,8 @@ app.get("/sante", async () => {
 
 await app.register(routesCatalogue);
 await app.register(routesFichiers);
+await app.register(routesCommandes);
+await app.register(routesDevis);
 
 async function arretGracieux(signal: string) {
   app.log.info(`Signal ${signal} reçu — arrêt en cours`);
