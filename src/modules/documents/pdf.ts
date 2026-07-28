@@ -97,8 +97,10 @@ export function genererPdfDocument(params: {
   dateEmission: Date;
   dateLimite: { libelle: string; date: Date } | null;
   contenu: ContenuDocument;
-  /** Statut de la facture au moment de la génération — "PAYEE" affiche le tampon PAYÉ. */
+  /** Statut de la facture au moment de la génération — PAYEE/PARTIELLEMENT_PAYEE affichent un tampon. */
   statut?: string;
+  /** Requis pour afficher le solde restant sur une facture PARTIELLEMENT_PAYEE. */
+  payeCents?: string;
 }): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "LETTER", margin: 50 });
@@ -238,6 +240,25 @@ export function genererPdfDocument(params: {
       y += 14;
       doc.font("Helvetica").fontSize(8.5).fillColor(GRIS).text("Facture intégralement réglée. Merci de votre confiance !", 50, y);
       y += 20;
+    } else if (params.statut === "PARTIELLEMENT_PAYEE" && params.payeCents !== undefined) {
+      const soldeCents = (BigInt(contenu.totalCents) - BigInt(params.payeCents)).toString();
+      doc.font("Helvetica-Bold").fontSize(9).fillColor(MARINE).text("PAIEMENT", 50, y);
+      y += 14;
+      doc
+        .font("Helvetica")
+        .fontSize(8.5)
+        .fillColor(GRIS)
+        .text(`Réglé à ce jour : ${formaterHTG(params.payeCents)} — solde restant : ${formaterHTG(soldeCents)}.`, 50, y);
+      y += 14;
+      for (const banque of contenu.emetteur.banques) {
+        doc.text(`${banque.banque} — ${banque.titulaire} — Compte n° ${banque.numeroCompte}`, 50, y);
+        y += 12;
+      }
+      if (contenu.emetteur.moncashNumero) {
+        doc.text(`MonCash : ${contenu.emetteur.moncashNumero}`, 50, y);
+        y += 12;
+      }
+      y += 8;
     } else {
       doc.font("Helvetica-Bold").fontSize(9).fillColor(MARINE).text("MODALITÉS DE PAIEMENT", 50, y);
       y += 14;
@@ -271,9 +292,10 @@ export function genererPdfDocument(params: {
         { width: 512, align: "center" },
       );
 
-    // Tampon "PAYÉ" — facture réglée intégralement (statut PAYEE). Dessiné en
-    // dernier, par-dessus le reste, pour rester visible quelle que soit la
-    // longueur du contenu au-dessus.
+    // Tampon "PAYÉ" / "PARTIELLEMENT PAYÉ" — dessiné en dernier, par-dessus
+    // le reste, pour rester visible quelle que soit la longueur du contenu
+    // au-dessus. Deux couleurs distinctes : le rouge de PAYÉ suggérerait à
+    // tort qu'il ne reste rien à régler sur une facture partielle.
     if (params.statut === "PAYEE") {
       const ROUGE = "#C41E3A";
       doc.save();
@@ -288,6 +310,21 @@ export function genererPdfDocument(params: {
         .fontSize(27)
         .fillColor(ROUGE)
         .text("PAYÉ", 340, 164, { width: 180, align: "center" });
+      doc.restore();
+    } else if (params.statut === "PARTIELLEMENT_PAYEE") {
+      const AMBRE = "#B45F06";
+      doc.save();
+      doc.rotate(-18, { origin: [430, 175] });
+      doc
+        .lineWidth(3)
+        .strokeColor(AMBRE)
+        .roundedRect(310, 148, 240, 54, 6)
+        .stroke();
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(16.5)
+        .fillColor(AMBRE)
+        .text("PARTIELLEMENT PAYÉ", 310, 168, { width: 240, align: "center" });
       doc.restore();
     }
 

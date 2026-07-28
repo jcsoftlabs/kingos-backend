@@ -52,10 +52,11 @@ async function recalculerFacture(tx: Parameters<Parameters<typeof db.$transactio
   const payeCents = paiements.reduce((acc, p) => acc + p.montantCents, 0n);
 
   const statut = payeCents >= facture.totalCents ? "PAYEE" : payeCents > 0n ? "PARTIELLEMENT_PAYEE" : "EMISE";
-  // Le PDF déjà généré (avant paiement complet) ne porte pas le tampon PAYÉ —
-  // on invalide le cache Cloudinary pour qu'il soit régénéré avec le tampon
-  // au prochain téléchargement (voir modules/documents/pdf.ts).
-  const nouvellementPayee = statut === "PAYEE" && facture.statut !== "PAYEE";
+  // Le PDF déjà généré (avant ce paiement) ne porte ni le bon tampon
+  // (PAYÉ / PARTIELLEMENT PAYÉ) ni le bon solde restant — on invalide le
+  // cache Cloudinary dès que le statut OU le montant payé change, pour
+  // qu'il soit régénéré au prochain téléchargement (voir modules/documents/pdf.ts).
+  const contenuPdfChange = statut !== facture.statut || payeCents !== facture.payeCents;
 
   const misAJour = await tx.facture.update({
     where: { id: factureId },
@@ -63,7 +64,7 @@ async function recalculerFacture(tx: Parameters<Parameters<typeof db.$transactio
       payeCents,
       statut,
       payeeLe: statut === "PAYEE" ? new Date() : facture.payeeLe,
-      ...(nouvellementPayee ? { pdfPublicId: null } : {}),
+      ...(contenuPdfChange ? { pdfPublicId: null } : {}),
     },
   });
 
