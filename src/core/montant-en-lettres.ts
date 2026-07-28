@@ -86,5 +86,12 @@ export function montantEnLettres(entier: number): string {
 
 export function montantHTGEnLettres(centimes: bigint): string {
   const gourdes = Math.floor(Number(centimes) / 100);
-  return `${montantEnLettres(gourdes)} gourde${gourdes > 1 ? "s" : ""}`;
+  const reste = Number(centimes % 100n);
+  const enLettres = `${montantEnLettres(gourdes)} gourde${gourdes > 1 ? "s" : ""}`;
+  // Les centimes doivent apparaître : sinon le montant en toutes lettres
+  // (tronqué) contredit le total affiché (arrondi) sur la même facture —
+  // 169 812,50 s'écrivait « ... huit cent douze gourdes » sous un total
+  // imprimé « 169 813 HTG ».
+  if (reste === 0) return enLettres;
+  return `${enLettres} et ${montantEnLettres(reste)} centime${reste > 1 ? "s" : ""}`;
 }

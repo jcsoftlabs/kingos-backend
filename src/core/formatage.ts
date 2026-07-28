@@ -1,7 +1,10 @@
 export function formaterHTG(centimes: bigint | number): string {
   const montant = Number(centimes) / 100;
-  // Intl affiche "G" comme symbole CLDR de la gourde — on veut "HTG" en toutes lettres.
-  return `${new Intl.NumberFormat("fr-HT", { maximumFractionDigits: 0 }).format(montant)} HTG`;
+  // Les centimes ne sont affichés que s'il y en a : arrondir systématiquement
+  // faisait diverger le total imprimé du montant en toutes lettres.
+  // Intl affiche "G" comme symbole CLDR de la gourde — on veut "HTG" en clair.
+  const decimales = Number(centimes) % 100 === 0 ? 0 : 2;
+  return `${new Intl.NumberFormat("fr-HT", { minimumFractionDigits: decimales, maximumFractionDigits: decimales }).format(montant)} HTG`;
 }
 
 export function formaterDate(date: Date): string {

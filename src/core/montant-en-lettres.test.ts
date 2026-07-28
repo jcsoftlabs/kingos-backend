@@ -49,10 +49,18 @@ describe("montantEnLettres", () => {
 });
 
 describe("montantHTGEnLettres", () => {
-  it("tronque les centimes et accorde gourde(s)", () => {
+  it("accorde gourde(s) et omet les centimes quand il n'y en a pas", () => {
     // 1168000 centimes = 11680 HTG
     expect(montantHTGEnLettres(1168000n)).toBe("onze mille six cent quatre-vingts gourdes");
     expect(montantHTGEnLettres(100n)).toBe("un gourde"); // 1 HTG — cas limite singulier
+  });
+
+  it("énonce les centimes — sinon le total imprimé (arrondi) contredit les lettres", () => {
+    // 169 812,50 HTG : s'écrivait "...huit cent douze gourdes" sous un total "169 813 HTG"
+    expect(montantHTGEnLettres(16981250n)).toBe(
+      "cent soixante-neuf mille huit cent douze gourdes et cinquante centimes",
+    );
+    expect(montantHTGEnLettres(101n)).toBe("un gourde et un centime");
   });
 
   it("le cas 80 (quatre-vingts) au pluriel exact, testé explicitement par le plan", () => {

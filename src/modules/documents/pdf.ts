@@ -42,6 +42,13 @@ const MARINE = "#1A124B";
 const MAGENTA = "#E6008C";
 const GRIS = "#5F4EA0";
 
+// Les dates d'un document financier sont ancrées au fuseau d'Haïti, jamais à
+// celui du serveur : sans ça une facture émise le 24 s'imprimait « 23/07/2026 »
+// selon la machine qui génère le PDF.
+function formaterDateDocument(date: Date): string {
+  return date.toLocaleDateString("fr-HT", { timeZone: "America/Port-au-Prince" });
+}
+
 function formaterHTG(centimesTexte: string): string {
   // Intl.NumberFormat("fr-HT", ...) insère U+202F (espace fine insécable) et
   // U+00A0 (espace insécable) — absents de l'encodage WinAnsi qu'utilisent
@@ -50,7 +57,8 @@ function formaterHTG(centimesTexte: string): string {
   // le PDF produit, pas en supposant que le formatage HTML se comporterait
   // pareil une fois rendu par une police PDF standard.
   const montant = Number(centimesTexte) / 100;
-  const formate = new Intl.NumberFormat("fr-HT", { maximumFractionDigits: 0 }).format(montant);
+  const decimales = Number(centimesTexte) % 100 === 0 ? 0 : 2;
+  const formate = new Intl.NumberFormat("fr-HT", { minimumFractionDigits: decimales, maximumFractionDigits: decimales }).format(montant);
   return `${formate.replace(/[  ]/g, " ")} HTG`;
 }
 
@@ -110,9 +118,9 @@ export function genererPdfDocument(params: {
       .fontSize(9)
       .font("Helvetica")
       .fillColor(GRIS)
-      .text(`Date : ${params.dateEmission.toLocaleDateString("fr-HT")}`, 300, 72, { align: "right", width: 262 });
+      .text(`Date : ${formaterDateDocument(params.dateEmission)}`, 300, 72, { align: "right", width: 262 });
     if (params.dateLimite) {
-      doc.text(`${params.dateLimite.libelle} : ${params.dateLimite.date.toLocaleDateString("fr-HT")}`, 300, 86, {
+      doc.text(`${params.dateLimite.libelle} : ${formaterDateDocument(params.dateLimite.date)}`, 300, 86, {
         align: "right",
         width: 262,
       });
@@ -177,25 +185,27 @@ export function genererPdfDocument(params: {
     y += 12;
 
     // Totaux
-    const xLabel = 380;
-    const xVal = 490;
+    // Colonne des valeurs assez large pour "169 812,50 HTG" : à 72pt le
+    // total avec centimes repassait à la ligne, "HTG" seul en dessous.
+    const xLabel = 330;
+    const xVal = 432;
     doc.font("Helvetica").fontSize(9).fillColor(GRIS);
     doc.text("Sous-total", xLabel, y, { width: 100 });
-    doc.text(formaterHTG(contenu.sousTotalCents), xVal, y, { width: 72, align: "right" });
+    doc.text(formaterHTG(contenu.sousTotalCents), xVal, y, { width: 130, align: "right" });
     y += 14;
     if (Number(contenu.remiseCents) > 0) {
       doc.text("Remise", xLabel, y, { width: 100 });
-      doc.text(`-${formaterHTG(contenu.remiseCents)}`, xVal, y, { width: 72, align: "right" });
+      doc.text(`-${formaterHTG(contenu.remiseCents)}`, xVal, y, { width: 130, align: "right" });
       y += 14;
     }
     if (Number(contenu.taxeCents) > 0) {
       doc.text(`Taxe (${contenu.taxeTauxPct}%)`, xLabel, y, { width: 100 });
-      doc.text(formaterHTG(contenu.taxeCents), xVal, y, { width: 72, align: "right" });
+      doc.text(formaterHTG(contenu.taxeCents), xVal, y, { width: 130, align: "right" });
       y += 14;
     }
     doc.font("Helvetica-Bold").fontSize(11).fillColor(MARINE);
     doc.text("TOTAL", xLabel, y, { width: 100 });
-    doc.text(formaterHTG(contenu.totalCents), xVal, y, { width: 72, align: "right" });
+    doc.text(formaterHTG(contenu.totalCents), xVal, y, { width: 130, align: "right" });
     y += 20;
 
     doc.font("Helvetica-Oblique").fontSize(8).fillColor(GRIS);
