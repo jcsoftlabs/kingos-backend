@@ -53,6 +53,17 @@ app.setErrorHandler((erreur: FastifyError | ErreurMetier | ZodError, requete, re
     });
   }
 
+  // Erreurs internes à Fastify/Node (corps JSON vide, payload trop lourd, JSON
+  // malformé...) portent déjà un statusCode correct — ne pas l'écraser par un
+  // 500 générique, sous peine de transformer une 400 légitime en fausse panne.
+  const statutConnu = "statusCode" in erreur ? erreur.statusCode : undefined;
+  if (statutConnu && statutConnu >= 400 && statutConnu < 500) {
+    return reponse.code(statutConnu).send({
+      succes: false,
+      erreur: { code: erreur.code ?? "REQUETE_INVALIDE", message: erreur.message },
+    });
+  }
+
   app.log.error(erreur);
   return reponse.code(500).send({
     succes: false,
