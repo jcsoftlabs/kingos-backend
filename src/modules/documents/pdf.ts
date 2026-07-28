@@ -230,20 +230,29 @@ export function genererPdfDocument(params: {
     doc.moveTo(50, y).lineTo(562, y).strokeColor(MAGENTA).lineWidth(1.5).stroke();
     y += 14;
 
-    // Modalités de paiement
-    doc.font("Helvetica-Bold").fontSize(9).fillColor(MARINE).text("MODALITÉS DE PAIEMENT", 50, y);
-    y += 14;
-    doc.font("Helvetica").fontSize(8.5).fillColor(GRIS);
-    for (const banque of contenu.emetteur.banques) {
-      doc.text(`${banque.banque} — ${banque.titulaire} — Compte n° ${banque.numeroCompte}`, 50, y);
-      y += 12;
+    // Modalités de paiement — "où et comment payer" n'a aucun sens une fois
+    // la facture réglée (trouvé en relisant un PDF tamponné PAYÉ, qui
+    // affichait encore les coordonnées bancaires et "paiement sur place").
+    if (params.statut === "PAYEE") {
+      doc.font("Helvetica-Bold").fontSize(9).fillColor(MARINE).text("PAIEMENT", 50, y);
+      y += 14;
+      doc.font("Helvetica").fontSize(8.5).fillColor(GRIS).text("Facture intégralement réglée. Merci de votre confiance !", 50, y);
+      y += 20;
+    } else {
+      doc.font("Helvetica-Bold").fontSize(9).fillColor(MARINE).text("MODALITÉS DE PAIEMENT", 50, y);
+      y += 14;
+      doc.font("Helvetica").fontSize(8.5).fillColor(GRIS);
+      for (const banque of contenu.emetteur.banques) {
+        doc.text(`${banque.banque} — ${banque.titulaire} — Compte n° ${banque.numeroCompte}`, 50, y);
+        y += 12;
+      }
+      if (contenu.emetteur.moncashNumero) {
+        doc.text(`MonCash : ${contenu.emetteur.moncashNumero}`, 50, y);
+        y += 12;
+      }
+      doc.text(`Paiement sur place : ${contenu.emetteur.adresse}, ${contenu.emetteur.ville}`, 50, y);
+      y += 20;
     }
-    if (contenu.emetteur.moncashNumero) {
-      doc.text(`MonCash : ${contenu.emetteur.moncashNumero}`, 50, y);
-      y += 12;
-    }
-    doc.text(`Paiement sur place : ${contenu.emetteur.adresse}, ${contenu.emetteur.ville}`, 50, y);
-    y += 20;
 
     doc.font("Helvetica").fontSize(7.5).fillColor(GRIS).text(contenu.conditions, 50, y, { width: 512 });
 

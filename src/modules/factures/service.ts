@@ -33,13 +33,23 @@ export async function convertirDevisEnFacture(devisId: string, auteurId?: string
 
     const numero = await prochainNumero("FAC");
 
+    // Le contenu du devis est repris tel quel (émetteur, client, lignes,
+    // totaux) SAUF les conditions : celles du devis ("valable 15 jours...")
+    // n'ont aucun sens sur une facture — trouvé en relisant un PDF de
+    // facture réel, qui affichait encore le texte du devis d'origine.
+    const parametres = await tx.parametresEntreprise.findUnique({ where: { id: 1 } });
+    const contenuFacture = {
+      ...(devis.contenu as Record<string, unknown>),
+      conditions: parametres?.conditionsFacture ?? (devis.contenu as { conditions?: string }).conditions,
+    };
+
     const facture = await tx.facture.create({
       data: {
         numero,
         commandeId: devis.commandeId,
         devisOrigineId: devis.id,
         statut: "EMISE",
-        contenu: devis.contenu as object,
+        contenu: contenuFacture,
         sousTotalCents: devis.sousTotalCents,
         remiseCents: devis.remiseCents,
         taxeTauxPct: devis.taxeTauxPct,
