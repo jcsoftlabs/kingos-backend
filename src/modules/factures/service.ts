@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { db } from "../../core/db.js";
-import { ErreurConflit, ErreurNonTrouve } from "../../core/erreurs.js";
+import { ErreurConflit, ErreurNonTrouve, ErreurValidation } from "../../core/erreurs.js";
 import { prochainNumero } from "../../core/numerotation.js";
 import { verifierTransition } from "../commandes/machine-etats.js";
 import { envoyerFactureEmise } from "../../core/email.js";
@@ -122,4 +122,47 @@ export async function modifierEcheanceFacture(factureId: string, echeanceLe: Dat
   ]);
 
   return facture;
+}
+
+export const schemaAnnulationFacture = z.object({
+  motif: z.string().min(1),
+});
+
+/**
+ * Annule une facture non réglée (erreur de saisie, commande abandonnée…).
+ * Pas de note de crédit/avoir ici — annuler une facture déjà partiellement
+ * ou totalement payée nécessiterait un vrai flux comptable d'avoir
+ * (remboursement, régularisation) qui n'existe pas encore côté produit ;
+ * on refuse explicitement plutôt que de laisser un statut incohérent.
+ */
+export async function annulerFacture(factureId: string, motif: string, acteur: { id: string; role: string }) {
+  const facture = await db.facture.findUniqueOrThrow({ where: { id: factureId }, include: { commande: true } });
+  if (facture.statut === "ANNULEE") throw new ErreurConflit(`Facture ${facture.numero} est déjà annulée`);
+  if (facture.payeCents > 0n) {
+    throw new ErreurValidation(
+      `Facture ${facture.numero} a déjà reçu un paiement — l'annulation d'une facture partiellement ou totalement payée nécessite une note de crédit, pas encore disponible`,
+    );
+  }
+
+  const [misAJour] = await db.$transaction([
+    db.facture.update({
+      where: { id: factureId },
+      data: { statut: "ANNULEE", annuleeLe: new Date(), motifAnnulation: motif },
+    }),
+    db.evenementCommande.create({
+      data: { commandeId: facture.commandeId, type: "FACTURE_ANNULEE", message: `Facture ${facture.numero} annulée — ${motif}`, auteurId: acteur.id },
+    }),
+    db.journalAudit.create({
+      data: {
+        acteurId: acteur.id,
+        acteurRole: acteur.role as never,
+        action: "FACTURE_ANNULEE",
+        entite: "Facture",
+        entiteId: factureId,
+        apres: { motif },
+      },
+    }),
+  ]);
+
+  return misAJour;
 }

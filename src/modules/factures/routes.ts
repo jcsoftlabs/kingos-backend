@@ -1,7 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import { exigerBackOffice, utilisateurDeLaRequete } from "../../core/auth-requete.js";
 import { exigeRole, masquerContenuSiNecessaire, masquerMontantsSiNecessaire } from "../../core/portee.js";
-import { convertirDevisEnFacture, obtenirFactureParNumero, modifierEcheanceFacture, schemaModificationEcheance } from "./service.js";
+import {
+  convertirDevisEnFacture,
+  obtenirFactureParNumero,
+  modifierEcheanceFacture,
+  schemaModificationEcheance,
+  annulerFacture,
+  schemaAnnulationFacture,
+} from "./service.js";
 
 // Émettre une facture est un acte commercial/financier — SUPER_ADMIN/ADMIN/
 // COMMERCIAL uniquement, comme pour l'acceptation du devis (devis/routes.ts).
@@ -32,6 +39,14 @@ export async function routesFactures(app: FastifyInstance) {
     exigeRole(utilisateur, [...ROLES_COMMERCIAUX]);
     const entree = schemaModificationEcheance.parse(requete.body);
     const facture = await modifierEcheanceFacture(requete.params.id, entree.echeanceLe, utilisateur.id);
+    return { succes: true, donnees: facture };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/admin/factures/:id/annuler", async (requete) => {
+    const utilisateur = await utilisateurDeLaRequete(requete);
+    exigeRole(utilisateur, [...ROLES_COMMERCIAUX]);
+    const { motif } = schemaAnnulationFacture.parse(requete.body);
+    const facture = await annulerFacture(requete.params.id, motif, utilisateur);
     return { succes: true, donnees: facture };
   });
 }

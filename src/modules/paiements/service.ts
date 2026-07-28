@@ -187,6 +187,18 @@ export async function enregistrerPaiementManuel(entree: EntreePaiementManuel, ac
   return paiement;
 }
 
+/** Chèques en attente d'encaissement (plan §8.4) — vue transverse, pas liée à une facture précise. */
+export async function listerChequesEnAttente() {
+  return db.paiement.findMany({
+    where: { statut: "A_ENCAISSER" },
+    orderBy: { dateEncaissementPrevue: "asc" },
+    include: {
+      commande: { select: { numero: true, nomContact: true, entreprise: true } },
+      facture: { select: { numero: true } },
+    },
+  });
+}
+
 export async function encaisserCheque(paiementId: string, acteur: { id: string; role: string }) {
   const { facture, paiement } = await db.$transaction(async (tx) => {
     const paiementTrouve = await tx.paiement.findUnique({ where: { id: paiementId } });

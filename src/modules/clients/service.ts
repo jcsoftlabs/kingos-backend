@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { db } from "../../core/db.js";
 import { ErreurNonTrouve } from "../../core/erreurs.js";
 
@@ -182,4 +183,41 @@ export async function obtenirClient(email: string) {
     factures,
     devis,
   };
+}
+
+export const schemaModificationClient = z.object({
+  nomContact: z.string().min(1).optional(),
+  telContact: z.string().min(1).optional(),
+  entreprise: z.string().nullable().optional(),
+  typeClient: z.enum(["PARTICULIER", "ENTREPRISE", "ONG", "INSTITUTION_ETATIQUE"]).optional(),
+  adresseLivraison: z.string().nullable().optional(),
+});
+
+/**
+ * « Le client » n'est pas une ligne en base — c'est un agrégat par e-mail
+ * (voir l'en-tête du fichier). Modifier ses coordonnées revient donc à
+ * corriger la commande la plus récente : c'est elle qui fait autorité pour
+ * l'identité affichée (listerClients/obtenirClient trient toujours par
+ * creeLe desc). Les commandes plus anciennes gardent leurs coordonnées
+ * d'origine, qui restent un instantané valide de la commande à l'époque.
+ */
+export async function modifierClient(email: string, entree: z.infer<typeof schemaModificationClient>, acteur: { id: string; role: string }) {
+  const derniereCommande = await db.commande.findFirst({ where: { emailContact: email }, orderBy: { creeLe: "desc" } });
+  if (!derniereCommande) throw new ErreurNonTrouve("Client", email);
+
+  await db.$transaction([
+    db.commande.update({ where: { id: derniereCommande.id }, data: entree }),
+    db.journalAudit.create({
+      data: {
+        acteurId: acteur.id,
+        acteurRole: acteur.role as never,
+        action: "CLIENT_MODIFIE",
+        entite: "Client",
+        entiteId: email,
+        apres: entree as never,
+      },
+    }),
+  ]);
+
+  return obtenirClient(email);
 }

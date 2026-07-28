@@ -3,12 +3,15 @@ import { exigerBackOffice, utilisateurDeLaRequete } from "../../core/auth-requet
 import { exigeRole } from "../../core/portee.js";
 import {
   schemaCreationCategorie,
+  schemaModificationCategorie,
   schemaCreationService,
   schemaModificationService,
   schemaCreationAttribut,
   schemaCreationOption,
   listerCatalogueAdmin,
   creerCategorie,
+  modifierCategorie,
+  retirerCategorie,
   creerService,
   modifierService,
   retirerService,
@@ -34,6 +37,21 @@ export async function routesAdminCatalogue(app: FastifyInstance) {
     exigeRole(utilisateur, [...ROLES_ECRITURE_CATALOGUE]);
     const entree = schemaCreationCategorie.parse(requete.body);
     const categorie = await creerCategorie(entree);
+    return { succes: true, donnees: categorie };
+  });
+
+  app.patch<{ Params: { id: string } }>("/api/admin/catalogue/categories/:id", async (requete) => {
+    const utilisateur = await utilisateurDeLaRequete(requete);
+    exigeRole(utilisateur, [...ROLES_ECRITURE_CATALOGUE]);
+    const entree = schemaModificationCategorie.parse(requete.body);
+    const categorie = await modifierCategorie(requete.params.id, entree);
+    return { succes: true, donnees: categorie };
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/admin/catalogue/categories/:id", async (requete) => {
+    const utilisateur = await utilisateurDeLaRequete(requete);
+    exigeRole(utilisateur, [...ROLES_ECRITURE_CATALOGUE]);
+    const categorie = await retirerCategorie(requete.params.id);
     return { succes: true, donnees: categorie };
   });
 

@@ -3,10 +3,13 @@ import { utilisateurDeLaRequete } from "../../core/auth-requete.js";
 import { exigeRole } from "../../core/portee.js";
 import {
   schemaCreationUtilisateur,
+  schemaModificationRole,
   listerUtilisateursBackOffice,
   creerUtilisateurBackOffice,
   desactiverUtilisateurBackOffice,
   reactiverUtilisateurBackOffice,
+  modifierRoleUtilisateur,
+  reinitialiserMotDePasse,
 } from "./service.js";
 
 // Gestion des comptes staff (ADMIN/COMMERCIAL/PRODUCTION/LECTURE) — réservée au
@@ -33,7 +36,7 @@ export async function routesUtilisateurs(app: FastifyInstance) {
     return { succes: true, donnees: { utilisateur, motDePasseTemporaire } };
   });
 
-  app.patch<{ Params: { id: string }; Body: { actif: boolean } }>("/api/admin/utilisateurs/:id", async (requete) => {
+  app.patch<{ Params: { id: string }; Body: { actif?: boolean } }>("/api/admin/utilisateurs/:id", async (requete) => {
     const admin = await exigerSuperAdmin(requete);
     const { actif } = requete.body;
     if (requete.params.id === admin.id) {
@@ -42,5 +45,24 @@ export async function routesUtilisateurs(app: FastifyInstance) {
     if (actif) await reactiverUtilisateurBackOffice(requete.params.id, admin);
     else await desactiverUtilisateurBackOffice(requete.params.id, admin);
     return { succes: true, donnees: null };
+  });
+
+  app.patch<{ Params: { id: string } }>("/api/admin/utilisateurs/:id/role", async (requete) => {
+    const admin = await exigerSuperAdmin(requete);
+    if (requete.params.id === admin.id) {
+      return { succes: false, erreur: { code: "ACTION_INVALIDE", message: "Impossible de modifier votre propre compte" } };
+    }
+    const { role } = schemaModificationRole.parse(requete.body);
+    const utilisateur = await modifierRoleUtilisateur(requete.params.id, role, admin);
+    return { succes: true, donnees: utilisateur };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/admin/utilisateurs/:id/reinitialiser-mot-de-passe", async (requete) => {
+    const admin = await exigerSuperAdmin(requete);
+    if (requete.params.id === admin.id) {
+      return { succes: false, erreur: { code: "ACTION_INVALIDE", message: "Impossible de modifier votre propre compte" } };
+    }
+    const motDePasseTemporaire = await reinitialiserMotDePasse(requete.params.id, admin);
+    return { succes: true, donnees: { motDePasseTemporaire } };
   });
 }

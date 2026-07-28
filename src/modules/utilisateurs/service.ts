@@ -78,3 +78,53 @@ export async function reactiverUtilisateurBackOffice(id: string, acteur: { id: s
     }),
   ]);
 }
+
+export const schemaModificationRole = z.object({
+  role: z.enum(ROLES_CREABLES),
+});
+
+/** Change le rôle d'un compte staff existant — jamais vers/depuis SUPER_ADMIN par cette route. */
+export async function modifierRoleUtilisateur(id: string, role: (typeof ROLES_CREABLES)[number], acteur: { id: string; role: string }) {
+  const avant = await db.utilisateur.findUniqueOrThrow({ where: { id } });
+  if (avant.role === "SUPER_ADMIN") throw new ErreurConflit("Le rôle d'un super administrateur ne se change pas ici");
+
+  const [utilisateur] = await db.$transaction([
+    db.utilisateur.update({
+      where: { id },
+      data: { role },
+      select: { id: true, email: true, nom: true, prenom: true, role: true, actif: true, creeLe: true },
+    }),
+    db.journalAudit.create({
+      data: {
+        acteurId: acteur.id,
+        acteurRole: acteur.role as never,
+        action: "UTILISATEUR_ROLE_MODIFIE",
+        entite: "Utilisateur",
+        entiteId: id,
+        avant: { role: avant.role },
+        apres: { role },
+      },
+    }),
+  ]);
+
+  return utilisateur;
+}
+
+/** Génère un nouveau mot de passe temporaire pour un compte staff (perte du précédent, oubli...). */
+export async function reinitialiserMotDePasse(id: string, acteur: { id: string; role: string }) {
+  const motDePasseTemporaire = randomBytes(9).toString("base64url");
+  const motDePasseHash = await hash(motDePasseTemporaire, { memoryCost: 19456, timeCost: 2, parallelism: 1 });
+
+  await db.$transaction([
+    db.utilisateur.update({ where: { id }, data: { motDePasseHash } }),
+    // Un mot de passe réinitialisé invalide les sessions déjà ouvertes —
+    // sinon un ancien mot de passe compromis laisserait quand même une
+    // session active utilisable jusqu'à son expiration naturelle.
+    db.session.updateMany({ where: { utilisateurId: id, revoqueeLe: null }, data: { revoqueeLe: new Date() } }),
+    db.journalAudit.create({
+      data: { acteurId: acteur.id, acteurRole: acteur.role as never, action: "UTILISATEUR_MOT_DE_PASSE_REINITIALISE", entite: "Utilisateur", entiteId: id },
+    }),
+  ]);
+
+  return motDePasseTemporaire;
+}

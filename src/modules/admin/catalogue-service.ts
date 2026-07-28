@@ -9,6 +9,10 @@ export const schemaCreationCategorie = z.object({
   ordre: z.number().int().default(0),
 });
 
+export const schemaModificationCategorie = schemaCreationCategorie.partial().extend({
+  visible: z.boolean().optional(),
+});
+
 export const schemaCreationService = z.object({
   categorieId: z.string().uuid(),
   slug: z.string().min(1),
@@ -61,6 +65,23 @@ export async function listerCatalogueAdmin() {
 
 export async function creerCategorie(entree: z.infer<typeof schemaCreationCategorie>) {
   return db.categorieService.create({ data: entree });
+}
+
+export async function modifierCategorie(id: string, entree: z.infer<typeof schemaModificationCategorie>) {
+  const categorie = await db.categorieService.findUnique({ where: { id } });
+  if (!categorie) throw new ErreurNonTrouve("Catégorie", id);
+  return db.categorieService.update({ where: { id }, data: entree });
+}
+
+/**
+ * Suppression douce, comme pour un service (visible: false) — jamais un vrai
+ * DELETE : les services déjà commandés dans cette catégorie doivent rester
+ * lisibles dans l'historique des commandes passées.
+ */
+export async function retirerCategorie(id: string) {
+  const categorie = await db.categorieService.findUnique({ where: { id } });
+  if (!categorie) throw new ErreurNonTrouve("Catégorie", id);
+  return db.categorieService.update({ where: { id }, data: { visible: false } });
 }
 
 export async function creerService(entree: z.infer<typeof schemaCreationService>) {

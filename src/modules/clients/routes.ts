@@ -1,9 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import { exigerBackOffice } from "../../core/auth-requete.js";
-import { peutVoirMontants, masquerMontantsSiNecessaire } from "../../core/portee.js";
-import { listerClients, obtenirClient } from "./service.js";
+import { exigerBackOffice, utilisateurDeLaRequete } from "../../core/auth-requete.js";
+import { peutVoirMontants, masquerMontantsSiNecessaire, exigeRole } from "../../core/portee.js";
+import { listerClients, obtenirClient, modifierClient, schemaModificationClient } from "./service.js";
 
 const MONTANTS_CLIENT = ["caRegleCents", "impayeCents"] as const;
+const ROLES_ECRITURE = ["SUPER_ADMIN", "ADMIN", "COMMERCIAL"] as const;
 
 export async function routesClients(app: FastifyInstance) {
   app.get<{ Querystring: { recherche?: string; page?: string } }>("/api/admin/clients", async (requete) => {
@@ -35,5 +36,13 @@ export async function routesClients(app: FastifyInstance) {
         devis: client.devis.map(({ totalCents: _t, ...reste }) => reste),
       },
     };
+  });
+
+  app.patch<{ Params: { email: string } }>("/api/admin/clients/:email", async (requete) => {
+    const utilisateur = await utilisateurDeLaRequete(requete);
+    exigeRole(utilisateur, [...ROLES_ECRITURE]);
+    const entree = schemaModificationClient.parse(requete.body);
+    const client = await modifierClient(decodeURIComponent(requete.params.email), entree, utilisateur);
+    return { succes: true, donnees: client };
   });
 }

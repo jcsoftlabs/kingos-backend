@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { utilisateurDeLaRequete } from "../../core/auth-requete.js";
 import { exigeRole } from "../../core/portee.js";
-import { schemaPaiementManuel, enregistrerPaiementManuel, encaisserCheque, rejeterCheque } from "./service.js";
+import { schemaPaiementManuel, enregistrerPaiementManuel, encaisserCheque, rejeterCheque, listerChequesEnAttente } from "./service.js";
 
 // Enregistrer/encaisser/rejeter un paiement déplace de l'argent réel — trouvé
 // entièrement ouvert lors de l'audit RBAC (n'importe qui pouvait marquer une
@@ -11,6 +11,13 @@ import { schemaPaiementManuel, enregistrerPaiementManuel, encaisserCheque, rejet
 const ROLES_FINANCE = ["SUPER_ADMIN", "ADMIN", "COMMERCIAL"] as const;
 
 export async function routesPaiements(app: FastifyInstance) {
+  app.get("/api/admin/paiements/cheques-en-attente", async (requete) => {
+    const utilisateur = await utilisateurDeLaRequete(requete);
+    exigeRole(utilisateur, [...ROLES_FINANCE]);
+    const donnees = await listerChequesEnAttente();
+    return { succes: true, donnees };
+  });
+
   app.post("/api/paiements/manuel", async (requete) => {
     const utilisateur = await utilisateurDeLaRequete(requete);
     exigeRole(utilisateur, [...ROLES_FINANCE]);
