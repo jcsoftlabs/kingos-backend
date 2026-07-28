@@ -34,7 +34,9 @@ export const schemaPaiementManuel = z.object({
   numeroCheque: z.string().optional(),
   dateCheque: z.coerce.date().optional(),
   dateEncaissementPrevue: z.coerce.date().optional(),
-  saisiParId: z.string().uuid().optional(),
+  // saisiParId n'est plus accepté depuis le client : qui a enregistré un
+  // paiement doit venir de la session, jamais d'une valeur qu'un appelant
+  // pourrait forger (plan §11.2 — trouvé lors de l'audit RBAC).
 });
 
 export type EntreePaiementManuel = z.infer<typeof schemaPaiementManuel>;
@@ -90,8 +92,11 @@ async function recalculerFacture(tx: Parameters<Parameters<typeof db.$transactio
  * virement créditent immédiatement ; un chèque part en A_ENCAISSER — ce
  * n'est PAS un paiement tant qu'il n'est pas confirmé, et ne doit jamais
  * faire passer une facture à PAYEE tout seul.
+ *
+ * @param acteur toujours dérivé de la session côté route (jamais du corps) —
+ * c'est l'identité qui apparaît dans le journal d'audit et sur `saisiParId`.
  */
-export async function enregistrerPaiementManuel(entree: EntreePaiementManuel) {
+export async function enregistrerPaiementManuel(entree: EntreePaiementManuel, acteur: { id: string; role: string }) {
   const paiement = await db.$transaction(async (tx) => {
     const facture = await tx.facture.findUnique({ where: { id: entree.factureId } });
     if (!facture) throw new ErreurNonTrouve("Facture", entree.factureId);
@@ -138,7 +143,7 @@ export async function enregistrerPaiementManuel(entree: EntreePaiementManuel) {
         numeroCheque: entree.numeroCheque,
         dateCheque: entree.dateCheque,
         dateEncaissementPrevue: entree.dateEncaissementPrevue,
-        saisiParId: entree.saisiParId,
+        saisiParId: acteur.id,
         confirmeLe: estImmediat ? new Date() : null,
       },
     });
@@ -150,6 +155,21 @@ export async function enregistrerPaiementManuel(entree: EntreePaiementManuel) {
         message: estImmediat
           ? `Paiement ${entree.fournisseur} de ${entree.montantCents} c reçu sur la facture ${facture.numero}`
           : `Chèque n°${entree.numeroCheque} de ${entree.montantCents} c reçu sur la facture ${facture.numero}, en attente d'encaissement`,
+      },
+    });
+
+    await tx.journalAudit.create({
+      data: {
+        acteurId: acteur.id,
+        acteurRole: acteur.role as never,
+        action: "PAIEMENT_ENREGISTRE",
+        entite: "Facture",
+        entiteId: facture.id,
+        apres: {
+          montantCents: entree.montantCents.toString(),
+          fournisseur: entree.fournisseur,
+          statutPaiement: estImmediat ? "REUSSI" : "A_ENCAISSER",
+        },
       },
     });
 
@@ -167,7 +187,7 @@ export async function enregistrerPaiementManuel(entree: EntreePaiementManuel) {
   return paiement;
 }
 
-export async function encaisserCheque(paiementId: string, valideParId?: string) {
+export async function encaisserCheque(paiementId: string, acteur: { id: string; role: string }) {
   const { facture, paiement } = await db.$transaction(async (tx) => {
     const paiementTrouve = await tx.paiement.findUnique({ where: { id: paiementId } });
     if (!paiementTrouve) throw new ErreurNonTrouve("Paiement", paiementId);
@@ -176,7 +196,7 @@ export async function encaisserCheque(paiementId: string, valideParId?: string) 
 
     await tx.paiement.update({
       where: { id: paiementId },
-      data: { statut: "REUSSI", confirmeLe: new Date(), valideParId },
+      data: { statut: "REUSSI", confirmeLe: new Date(), valideParId: acteur.id },
     });
 
     await tx.evenementCommande.create({
@@ -184,6 +204,17 @@ export async function encaisserCheque(paiementId: string, valideParId?: string) 
         commandeId: paiementTrouve.commandeId,
         type: "CHEQUE_ENCAISSE",
         message: `Chèque n°${paiementTrouve.numeroCheque} encaissé`,
+      },
+    });
+
+    await tx.journalAudit.create({
+      data: {
+        acteurId: acteur.id,
+        acteurRole: acteur.role as never,
+        action: "CHEQUE_ENCAISSE",
+        entite: "Paiement",
+        entiteId: paiementId,
+        apres: { numeroCheque: paiementTrouve.numeroCheque, montantCents: paiementTrouve.montantCents.toString() },
       },
     });
 
@@ -196,7 +227,7 @@ export async function encaisserCheque(paiementId: string, valideParId?: string) 
   return facture;
 }
 
-export async function rejeterCheque(paiementId: string, motif: string) {
+export async function rejeterCheque(paiementId: string, motif: string, acteur: { id: string; role: string }) {
   return db.$transaction(async (tx) => {
     const paiement = await tx.paiement.findUnique({ where: { id: paiementId } });
     if (!paiement) throw new ErreurNonTrouve("Paiement", paiementId);
@@ -204,7 +235,7 @@ export async function rejeterCheque(paiementId: string, motif: string) {
 
     const misAJour = await tx.paiement.update({
       where: { id: paiementId },
-      data: { statut: "REJETE", motifRejet: motif },
+      data: { statut: "REJETE", motifRejet: motif, valideParId: acteur.id },
     });
 
     await tx.evenementCommande.create({
@@ -212,6 +243,17 @@ export async function rejeterCheque(paiementId: string, motif: string) {
         commandeId: paiement.commandeId,
         type: "CHEQUE_REJETE",
         message: `Chèque n°${paiement.numeroCheque} rejeté — ${motif}`,
+      },
+    });
+
+    await tx.journalAudit.create({
+      data: {
+        acteurId: acteur.id,
+        acteurRole: acteur.role as never,
+        action: "CHEQUE_REJETE",
+        entite: "Paiement",
+        entiteId: paiementId,
+        apres: { numeroCheque: paiement.numeroCheque, motif },
       },
     });
 

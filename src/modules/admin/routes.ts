@@ -46,7 +46,21 @@ export async function routesAdmin(app: FastifyInstance) {
         orderBy: { creeLe: "desc" },
         skip: (page - 1) * taille,
         take: taille,
-        include: { commande: { select: { numero: true, nomContact: true, emailContact: true } } },
+        // `contenu` (JSON figé) exclu explicitement : il répète tous les
+        // montants ligne par ligne, ce qui rendait le masquage PRODUCTION
+        // ci-dessous inopérant (trouvé lors de l'audit RBAC).
+        select: {
+          id: true,
+          numero: true,
+          statut: true,
+          sousTotalCents: true,
+          remiseCents: true,
+          taxeCents: true,
+          totalCents: true,
+          expireLe: true,
+          creeLe: true,
+          commande: { select: { numero: true, nomContact: true, emailContact: true } },
+        },
       }),
       db.devis.count({ where: requete.query.statut ? { statut: requete.query.statut as never } : undefined }),
     ]);
@@ -66,7 +80,20 @@ export async function routesAdmin(app: FastifyInstance) {
         orderBy: { creeLe: "desc" },
         skip: (page - 1) * taille,
         take: taille,
-        include: { commande: { select: { numero: true, nomContact: true, emailContact: true } } },
+        // `contenu` exclu — voir le commentaire équivalent sur /api/admin/devis.
+        select: {
+          id: true,
+          numero: true,
+          statut: true,
+          sousTotalCents: true,
+          remiseCents: true,
+          taxeCents: true,
+          totalCents: true,
+          payeCents: true,
+          echeanceLe: true,
+          creeLe: true,
+          commande: { select: { numero: true, nomContact: true, emailContact: true } },
+        },
       }),
       db.facture.count({ where: requete.query.statut ? { statut: requete.query.statut as never } : undefined }),
     ]);

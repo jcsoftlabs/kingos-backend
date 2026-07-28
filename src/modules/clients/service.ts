@@ -14,6 +14,7 @@ export interface ClientResume extends Record<string, unknown> {
   email: string;
   nom: string;
   entreprise: string | null;
+  typeClient: string;
   telephone: string;
   utilisateurId: string | null;
   nbCommandes: number;
@@ -70,7 +71,7 @@ export async function listerClients(options: { recherche?: string; page?: number
       where: { emailContact: { in: emails } },
       orderBy: { creeLe: "desc" },
       distinct: ["emailContact"],
-      select: { emailContact: true, nomContact: true, entreprise: true, telContact: true, utilisateurId: true },
+      select: { emailContact: true, nomContact: true, entreprise: true, typeClient: true, telContact: true, utilisateurId: true },
     }),
     db.facture.findMany({
       where: { commande: { emailContact: { in: emails } } },
@@ -95,6 +96,7 @@ export async function listerClients(options: { recherche?: string; page?: number
       email: g.emailContact,
       nom: identite?.nomContact ?? g.emailContact,
       entreprise: identite?.entreprise ?? null,
+      typeClient: identite?.typeClient ?? "PARTICULIER",
       telephone: identite?.telContact ?? "",
       utilisateurId: identite?.utilisateurId ?? null,
       nbCommandes: g._count._all,
@@ -131,6 +133,7 @@ export async function obtenirClient(email: string) {
       select: {
         nomContact: true,
         entreprise: true,
+        typeClient: true,
         telContact: true,
         adresseLivraison: true,
         utilisateurId: true,
@@ -160,6 +163,7 @@ export async function obtenirClient(email: string) {
     email,
     nom: identite?.nomContact ?? email,
     entreprise: identite?.entreprise ?? null,
+    typeClient: identite?.typeClient ?? "PARTICULIER",
     telephone: identite?.telContact ?? "",
     adresseLivraison: identite?.adresseLivraison ?? null,
     compte: identite?.utilisateur ?? null,

@@ -14,3 +14,16 @@ export async function exigerBackOffice(requete: FastifyRequest): Promise<Utilisa
   exigeRole(utilisateur, ROLES_BACK_OFFICE);
   return utilisateur;
 }
+
+/**
+ * Résout l'utilisateur si une session valide est présente, sans jamais lever
+ * — pour les routes publiques (ex. création de commande) qui acceptent aussi
+ * bien un visiteur anonyme qu'un client déjà connecté.
+ */
+export async function utilisateurOptionnel(requete: FastifyRequest): Promise<UtilisateurCourant | undefined> {
+  try {
+    return await utilisateurDeLaRequete(requete);
+  } catch {
+    return undefined;
+  }
+}

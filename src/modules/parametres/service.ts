@@ -47,10 +47,23 @@ export async function obtenirParametresEntreprise() {
   });
 }
 
-export async function modifierParametresEntreprise(entree: z.infer<typeof schemaModificationParametres>) {
+export async function modifierParametresEntreprise(
+  entree: z.infer<typeof schemaModificationParametres>,
+  acteur: { id: string; role: string },
+) {
   await obtenirParametresEntreprise(); // garantit l'existence de la ligne id=1
-  return db.parametresEntreprise.update({
-    where: { id: 1 },
-    data: entree,
-  });
+  const [parametres] = await db.$transaction([
+    db.parametresEntreprise.update({ where: { id: 1 }, data: entree }),
+    db.journalAudit.create({
+      data: {
+        acteurId: acteur.id,
+        acteurRole: acteur.role as never,
+        action: "PARAMETRES_MODIFIES",
+        entite: "ParametresEntreprise",
+        entiteId: "1",
+        apres: entree as never,
+      },
+    }),
+  ]);
+  return parametres;
 }

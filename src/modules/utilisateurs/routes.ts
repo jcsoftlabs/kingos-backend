@@ -25,9 +25,9 @@ export async function routesUtilisateurs(app: FastifyInstance) {
   });
 
   app.post("/api/admin/utilisateurs", async (requete) => {
-    await exigerSuperAdmin(requete);
+    const admin = await exigerSuperAdmin(requete);
     const entree = schemaCreationUtilisateur.parse(requete.body);
-    const { utilisateur, motDePasseTemporaire } = await creerUtilisateurBackOffice(entree);
+    const { utilisateur, motDePasseTemporaire } = await creerUtilisateurBackOffice(entree, admin);
     // Le mot de passe temporaire n'est renvoyé qu'une seule fois, dans cette
     // réponse — jamais stocké en clair, jamais rejoué par une autre route.
     return { succes: true, donnees: { utilisateur, motDePasseTemporaire } };
@@ -39,8 +39,8 @@ export async function routesUtilisateurs(app: FastifyInstance) {
     if (requete.params.id === admin.id) {
       return { succes: false, erreur: { code: "ACTION_INVALIDE", message: "Impossible de modifier votre propre compte" } };
     }
-    if (actif) await reactiverUtilisateurBackOffice(requete.params.id);
-    else await desactiverUtilisateurBackOffice(requete.params.id);
+    if (actif) await reactiverUtilisateurBackOffice(requete.params.id, admin);
+    else await desactiverUtilisateurBackOffice(requete.params.id, admin);
     return { succes: true, donnees: null };
   });
 }

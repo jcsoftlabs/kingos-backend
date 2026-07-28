@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { db } from "../../core/db.js";
 import { ErreurConflit, ErreurNonTrouve } from "../../core/erreurs.js";
 import { prochainNumero } from "../../core/numerotation.js";
@@ -11,8 +12,12 @@ import { genererBufferPdfFacture } from "../documents/service.js";
  * métier : `Devis.factureId` est unique en base, donc une seconde tentative
  * sur le même devis échoue proprement plutôt que de produire une deuxième
  * facture pour la même commande.
+ *
+ * @param echeanceLe échéance de paiement — par défaut aucune (paiement à
+ * réception), mais le staff peut en fixer une explicitement (ex. client
+ * institutionnel avec un délai de règlement contractuel de 30/60 jours).
  */
-export async function convertirDevisEnFacture(devisId: string) {
+export async function convertirDevisEnFacture(devisId: string, auteurId?: string, echeanceLe?: Date) {
   const resultat = await db.$transaction(async (tx) => {
     const devis = await tx.devis.findUnique({ where: { id: devisId }, include: { commande: true } });
     if (!devis) throw new ErreurNonTrouve("Devis", devisId);
@@ -41,6 +46,7 @@ export async function convertirDevisEnFacture(devisId: string) {
         taxeCents: devis.taxeCents,
         totalCents: devis.totalCents,
         devise: devis.devise,
+        echeanceLe,
         envoyeeLe: new Date(),
       },
     });
@@ -55,6 +61,16 @@ export async function convertirDevisEnFacture(devisId: string) {
         ancienStatut: devis.commande.statut,
         nouveauStatut: "EN_ATTENTE_PAIEMENT",
         message: `Facture ${numero} émise depuis le devis ${devis.numero}`,
+      },
+    });
+
+    await tx.journalAudit.create({
+      data: {
+        acteurId: auteurId,
+        action: "FACTURE_EMISE",
+        entite: "Facture",
+        entiteId: facture.id,
+        apres: { numero: facture.numero, totalCents: facture.totalCents.toString(), echeanceLe },
       },
     });
 
@@ -77,5 +93,33 @@ export async function convertirDevisEnFacture(devisId: string) {
 export async function obtenirFactureParNumero(numero: string) {
   const facture = await db.facture.findUnique({ where: { numero } });
   if (!facture) throw new ErreurNonTrouve("Facture", numero);
+  return facture;
+}
+
+export const schemaModificationEcheance = z.object({
+  echeanceLe: z.coerce.date().nullable(),
+});
+
+/** Fixe ou efface manuellement l'échéance d'une facture émise. */
+export async function modifierEcheanceFacture(factureId: string, echeanceLe: Date | null, auteurId: string) {
+  const avant = await db.facture.findUniqueOrThrow({ where: { id: factureId } });
+
+  const [facture] = await db.$transaction([
+    // Invalide le PDF déjà généré (voir paiements/service.ts pour le même
+    // principe côté PAYÉ) : sinon un changement d'échéance après coup reste
+    // invisible tant que personne ne re-déclenche une régénération.
+    db.facture.update({ where: { id: factureId }, data: { echeanceLe, pdfPublicId: null } }),
+    db.journalAudit.create({
+      data: {
+        acteurId: auteurId,
+        action: "FACTURE_ECHEANCE_MODIFIEE",
+        entite: "Facture",
+        entiteId: factureId,
+        avant: { echeanceLe: avant.echeanceLe },
+        apres: { echeanceLe },
+      },
+    }),
+  ]);
+
   return facture;
 }

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "../../core/db.js";
 import { dossiersCloudinary, signerUpload, verifierSignatureWebhook } from "../../core/cloudinary.js";
 import { ErreurValidation } from "../../core/erreurs.js";
+import { exigerBackOffice } from "../../core/auth-requete.js";
 
 const schemaNotificationCloudinary = z.object({
   notification_type: z.string().optional(),
@@ -29,9 +30,17 @@ const schemaSignature = z.object({
  * Émission d'une signature d'upload à usage unique (plan §6.2). Le navigateur
  * envoie ensuite le fichier directement à Cloudinary — jamais via cette API,
  * dont la charge utile serait limitée et le transfert lent sur mobile.
+ *
+ * Back-office uniquement pour l'instant : cette route acceptait n'importe
+ * quel commandeId sans authentification (trouvé lors de l'audit RBAC),
+ * ce qui permettait d'injecter des fichiers dans le dossier Cloudinary de
+ * n'importe quelle commande. Le dépôt de fichiers se fait donc aujourd'hui
+ * depuis la fiche commande du staff (glisser-déposer), pas en self-service
+ * client — ça viendra avec un vrai portail client à jetons d'accès.
  */
 export async function routesFichiers(app: FastifyInstance) {
   app.post("/api/fichiers/signature", async (requete) => {
+    await exigerBackOffice(requete);
     const entree = schemaSignature.parse(requete.body);
     const extension = entree.nomFichier.split(".").pop()?.toLowerCase() ?? "";
 

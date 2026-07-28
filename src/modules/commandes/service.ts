@@ -5,7 +5,7 @@ import { prochainNumero } from "../../core/numerotation.js";
 import { simulerPrixAvecService } from "../catalogue/simulation.js";
 import { verifierTransition } from "./machine-etats.js";
 import { envoyerConfirmationCommande } from "../../core/email.js";
-import type { StatutCommande } from "@prisma/client";
+import type { StatutCommande, Role } from "@prisma/client";
 
 const schemaLigne = z.object({
   serviceSlug: z.string(),
@@ -16,11 +16,14 @@ const schemaLigne = z.object({
 });
 
 export const schemaCreationCommande = z.object({
-  utilisateurId: z.string().uuid().optional(),
+  // utilisateurId n'est PAS accepté depuis le client : un visiteur pourrait
+  // rattacher sa commande au compte de n'importe qui en devinant un UUID.
+  // Il est dérivé côté serveur de la session, si elle existe (voir routes.ts).
   emailContact: z.string().email(),
   nomContact: z.string().min(1),
   telContact: z.string().min(1),
   entreprise: z.string().optional(),
+  typeClient: z.enum(["PARTICULIER", "ENTREPRISE", "ONG", "INSTITUTION_ETATIQUE"]).default("PARTICULIER"),
   modeLivraison: z.enum(["RETRAIT_ATELIER", "LIVRAISON_PORT_AU_PRINCE", "LIVRAISON_PROVINCE"]).default("RETRAIT_ATELIER"),
   adresseLivraison: z.string().optional(),
   notesClient: z.string().optional(),
@@ -33,8 +36,11 @@ export type EntreeCreationCommande = z.infer<typeof schemaCreationCommande>;
  * Crée une commande en BROUILLON avec toutes ses lignes déjà chiffrées.
  * Idempotente : un même en-tête Idempotency-Key renvoie la commande déjà
  * créée au lieu d'en insérer une seconde (plan §2.1 règle 8, §6.4).
+ *
+ * @param utilisateurId dérivé de la session côté route — jamais du corps de
+ * la requête (plan §11.2 : l'appartenance d'une commande ne se déclare pas).
  */
-export async function creerCommande(entree: EntreeCreationCommande, cleIdempotence?: string) {
+export async function creerCommande(entree: EntreeCreationCommande, cleIdempotence?: string, utilisateurId?: string) {
   if (cleIdempotence) {
     const existante = await db.commande.findUnique({ where: { cleIdempotence } });
     if (existante) return existante;
@@ -57,11 +63,12 @@ export async function creerCommande(entree: EntreeCreationCommande, cleIdempoten
     const creee = await tx.commande.create({
       data: {
         numero,
-        utilisateurId: entree.utilisateurId,
+        utilisateurId,
         emailContact: entree.emailContact,
         nomContact: entree.nomContact,
         telContact: entree.telContact,
         entreprise: entree.entreprise,
+        typeClient: entree.typeClient,
         modeLivraison: entree.modeLivraison,
         adresseLivraison: entree.adresseLivraison,
         notesClient: entree.notesClient,
@@ -117,7 +124,13 @@ export async function creerCommande(entree: EntreeCreationCommande, cleIdempoten
 export async function obtenirCommandeParNumero(numero: string) {
   const commande = await db.commande.findUnique({
     where: { numero },
-    include: { lignes: true, evenements: { orderBy: { creeLe: "asc" } }, fichiers: true },
+    include: {
+      lignes: true,
+      evenements: { orderBy: { creeLe: "asc" } },
+      fichiers: true,
+      devis: { orderBy: { creeLe: "desc" }, select: { id: true, numero: true, statut: true, totalCents: true, expireLe: true } },
+      factures: { orderBy: { creeLe: "desc" }, select: { id: true, numero: true, statut: true, totalCents: true, payeCents: true, echeanceLe: true } },
+    },
   });
   if (!commande) throw new ErreurNonTrouve("Commande", numero);
   return commande;
@@ -140,6 +153,7 @@ export async function changerStatutCommande(params: {
   nouveauStatut: StatutCommande;
   message: string;
   auteurId?: string;
+  auteurRole?: Role;
   visibleClient?: boolean;
 }) {
   return db.$transaction(async (tx) => {
@@ -168,10 +182,11 @@ export async function changerStatutCommande(params: {
     await tx.journalAudit.create({
       data: {
         acteurId: params.auteurId,
+        acteurRole: params.auteurRole,
         action: "COMMANDE_STATUT_MODIFIE",
         entite: "Commande",
         entiteId: params.commandeId,
-        avant: { statut: commande.statut },
+        avant: { statut: commande.statut, numero: commande.numero },
         apres: { statut: params.nouveauStatut },
       },
     });

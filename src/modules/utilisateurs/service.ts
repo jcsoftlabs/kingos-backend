@@ -24,7 +24,7 @@ export async function listerUtilisateursBackOffice() {
 }
 
 /** Crée un compte staff avec un mot de passe temporaire généré (à transmettre au titulaire). */
-export async function creerUtilisateurBackOffice(entree: z.infer<typeof schemaCreationUtilisateur>) {
+export async function creerUtilisateurBackOffice(entree: z.infer<typeof schemaCreationUtilisateur>, acteur: { id: string; role: string }) {
   const existant = await db.utilisateur.findUnique({ where: { email: entree.email } });
   if (existant) throw new ErreurConflit("Un compte existe déjà avec cet e-mail");
 
@@ -32,26 +32,49 @@ export async function creerUtilisateurBackOffice(entree: z.infer<typeof schemaCr
   // Mêmes paramètres que prisma/seed-admin.ts (plan §11.1).
   const motDePasseHash = await hash(motDePasseTemporaire, { memoryCost: 19456, timeCost: 2, parallelism: 1 });
 
-  const utilisateur = await db.utilisateur.create({
+  const [utilisateur] = await db.$transaction([
+    db.utilisateur.create({
+      data: {
+        email: entree.email,
+        nom: entree.nom,
+        prenom: entree.prenom,
+        role: entree.role,
+        motDePasseHash,
+        emailVerifie: new Date(),
+        actif: true,
+      },
+      select: { id: true, email: true, nom: true, prenom: true, role: true, actif: true, creeLe: true },
+    }),
+  ]);
+
+  await db.journalAudit.create({
     data: {
-      email: entree.email,
-      nom: entree.nom,
-      prenom: entree.prenom,
-      role: entree.role,
-      motDePasseHash,
-      emailVerifie: new Date(),
-      actif: true,
+      acteurId: acteur.id,
+      acteurRole: acteur.role as never,
+      action: "UTILISATEUR_CREE",
+      entite: "Utilisateur",
+      entiteId: utilisateur.id,
+      apres: { email: utilisateur.email, role: utilisateur.role },
     },
-    select: { id: true, email: true, nom: true, prenom: true, role: true, actif: true, creeLe: true },
   });
 
   return { utilisateur, motDePasseTemporaire };
 }
 
-export async function desactiverUtilisateurBackOffice(id: string) {
-  await db.utilisateur.update({ where: { id }, data: { actif: false } });
+export async function desactiverUtilisateurBackOffice(id: string, acteur: { id: string; role: string }) {
+  await db.$transaction([
+    db.utilisateur.update({ where: { id }, data: { actif: false } }),
+    db.journalAudit.create({
+      data: { acteurId: acteur.id, acteurRole: acteur.role as never, action: "UTILISATEUR_DESACTIVE", entite: "Utilisateur", entiteId: id },
+    }),
+  ]);
 }
 
-export async function reactiverUtilisateurBackOffice(id: string) {
-  await db.utilisateur.update({ where: { id }, data: { actif: true } });
+export async function reactiverUtilisateurBackOffice(id: string, acteur: { id: string; role: string }) {
+  await db.$transaction([
+    db.utilisateur.update({ where: { id }, data: { actif: true } }),
+    db.journalAudit.create({
+      data: { acteurId: acteur.id, acteurRole: acteur.role as never, action: "UTILISATEUR_REACTIVE", entite: "Utilisateur", entiteId: id },
+    }),
+  ]);
 }

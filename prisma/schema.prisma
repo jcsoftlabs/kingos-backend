@@ -244,6 +244,16 @@ enum ModeLivraison {
   LIVRAISON_PROVINCE
 }
 
+// Un client n'est pas toujours un particulier : beaucoup de commandes Kingo's
+// viennent d'entreprises, d'ONG ou d'institutions publiques, avec des besoins
+// de facturation différents (NIF, bon de commande, exonération de taxe...).
+enum TypeClient {
+  PARTICULIER
+  ENTREPRISE
+  ONG
+  INSTITUTION_ETATIQUE
+}
+
 model Commande {
   id                  String          @id @default(uuid())
   numero              String          @unique
@@ -252,6 +262,7 @@ model Commande {
   nomContact          String
   telContact          String
   entreprise          String?
+  typeClient          TypeClient      @default(PARTICULIER)
   statut              StatutCommande  @default(BROUILLON)
   modeLivraison       ModeLivraison   @default(RETRAIT_ATELIER)
   adresseLivraison    String?
@@ -285,8 +296,13 @@ model Commande {
 model LigneCommande {
   id                String  @id @default(uuid())
   commandeId        String
-  serviceId         String
+  // Nullable : une ligne de vente rapide (guichet — ex. "photocopies 40
+  // pages") n'a pas forcément de service catalogué correspondant. Dans ce
+  // cas serviceId est absent et descriptionLibre porte l'intitulé saisi
+  // manuellement par le staff.
+  serviceId         String?
   serviceNom        String
+  descriptionLibre  String?
   specifications     Json
   detailPrix        Json
   quantite          Int     @default(1)

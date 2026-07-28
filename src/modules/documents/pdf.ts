@@ -49,6 +49,15 @@ function formaterDateDocument(date: Date): string {
   return date.toLocaleDateString("fr-HT", { timeZone: "America/Port-au-Prince" });
 }
 
+// L'échéance d'une facture est saisie via un <input type="date"> — une date
+// calendaire pure (minuit UTC, aucune heure réelle), pas un instant. La
+// convertir au fuseau d'Haïti (UTC-5) la faisait reculer d'un jour. Ce n'est
+// PAS le cas de dateEmission ni de l'expiration d'un devis, qui portent un
+// horodatage réel : elles restent formatées par formaterDateDocument.
+function formaterDateCalendaire(date: Date): string {
+  return date.toLocaleDateString("fr-HT", { timeZone: "UTC" });
+}
+
 function formaterHTG(centimesTexte: string): string {
   // Intl.NumberFormat("fr-HT", ...) insère U+202F (espace fine insécable) et
   // U+00A0 (espace insécable) — absents de l'encodage WinAnsi qu'utilisent
@@ -120,7 +129,12 @@ export function genererPdfDocument(params: {
       .fillColor(GRIS)
       .text(`Date : ${formaterDateDocument(params.dateEmission)}`, 300, 72, { align: "right", width: 262 });
     if (params.dateLimite) {
-      doc.text(`${params.dateLimite.libelle} : ${formaterDateDocument(params.dateLimite.date)}`, 300, 86, {
+      // FACTURE : dateLimite = échéance saisie via un sélecteur de date (pure
+      // date calendaire). DEVIS : dateLimite = date de validité calculée à
+      // partir d'un horodatage réel — les deux ne se formatent pas pareil.
+      const dateFormatee =
+        params.type === "FACTURE" ? formaterDateCalendaire(params.dateLimite.date) : formaterDateDocument(params.dateLimite.date);
+      doc.text(`${params.dateLimite.libelle} : ${dateFormatee}`, 300, 86, {
         align: "right",
         width: 262,
       });

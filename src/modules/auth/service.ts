@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "../../core/db.js";
 import { ErreurMetier, ErreurNonAutorise } from "../../core/erreurs.js";
 import { genererJeton, hasherJeton, expirationSession } from "../../core/session.js";
+import { ROLES_BACK_OFFICE } from "../../core/portee.js";
 
 export const schemaConnexion = z.object({
   email: z.string().email(),
@@ -37,6 +38,10 @@ export async function connecter(
 
   const jetonBrut = genererJeton();
 
+  // Le journal d'audit ne trace que les connexions back-office : un client
+  // qui se connecte n'est pas un événement sensible, ça noierait le journal.
+  const estBackOffice = ROLES_BACK_OFFICE.includes(utilisateur.role);
+
   await db.$transaction([
     db.session.create({
       data: {
@@ -48,6 +53,20 @@ export async function connecter(
       },
     }),
     db.utilisateur.update({ where: { id: utilisateur.id }, data: { derniereConnexion: new Date() } }),
+    ...(estBackOffice
+      ? [
+          db.journalAudit.create({
+            data: {
+              acteurId: utilisateur.id,
+              acteurRole: utilisateur.role,
+              action: "CONNEXION",
+              entite: "Utilisateur",
+              entiteId: utilisateur.id,
+              adresseIp: contexte.adresseIp,
+            },
+          }),
+        ]
+      : []),
   ]);
 
   const { motDePasseHash: _mdp, ...utilisateurSansMotDePasse } = utilisateur;

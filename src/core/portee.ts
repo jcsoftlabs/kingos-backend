@@ -35,6 +35,21 @@ export function porteeCommandes(utilisateur: UtilisateurCourant) {
   return { utilisateurId: utilisateur.id };
 }
 
+/**
+ * Le JSON `contenu` figé d'un devis/facture répète tous les montants ligne
+ * par ligne — le masquage des colonnes scalaires seul ne suffit pas
+ * (PRODUCTION verrait quand même les prix via ce champ, trouvé lors de
+ * l'audit RBAC). Retire les montants de `contenu` de la même façon.
+ */
+export function masquerContenuSiNecessaire(utilisateur: UtilisateurCourant, contenu: Record<string, unknown>) {
+  if (peutVoirMontants(utilisateur)) return contenu;
+  const { sousTotalCents: _s, remiseCents: _r, taxeCents: _t, totalCents: _to, fraisLivraisonCents: _f, ...reste } = contenu as Record<string, unknown>;
+  const lignes = Array.isArray(reste.lignes)
+    ? (reste.lignes as Record<string, unknown>[]).map(({ prixUnitaireCents: _pu, totalCents: _tl, ...ligneReste }) => ligneReste)
+    : reste.lignes;
+  return { ...reste, lignes };
+}
+
 /** Retire les champs monétaires d'un objet commande/facture avant de le renvoyer à un rôle qui n'y a pas droit. */
 export function masquerMontantsSiNecessaire<T extends Record<string, unknown>>(
   utilisateur: UtilisateurCourant,
