@@ -1,0 +1,66 @@
+import { v2 as cloudinary } from "cloudinary";
+
+// CLOUDINARY_URL est lu automatiquement par le SDK (cloudinary://key:secret@cloud_name).
+cloudinary.config({ secure: true });
+
+export { cloudinary };
+
+const DOSSIER_RACINE = process.env.NODE_ENV === "production" ? "kingos/prod" : "kingos/dev";
+
+export const dossiersCloudinary = {
+  catalogue: (slug: string) => `${DOSSIER_RACINE}/catalogue/${slug}`,
+  realisations: (slug: string) => `${DOSSIER_RACINE}/realisations/${slug}`,
+  ressourcesApercus: () => `${DOSSIER_RACINE}/ressources/apercus`,
+  ressourcesFichiers: () => `${DOSSIER_RACINE}/ressources/fichiers`,
+  commande: (numero: string) => `${DOSSIER_RACINE}/commandes/${numero}`,
+  bat: (numero: string) => `${DOSSIER_RACINE}/bat/${numero}`,
+  documents: (type: "devis" | "factures") => `${DOSSIER_RACINE}/documents/${type}`,
+  marque: () => `${DOSSIER_RACINE}/marque`,
+} as const;
+
+/**
+ * Signature d'upload à usage unique. Le navigateur envoie le fichier directement
+ * à Cloudinary — jamais via l'API — avec ces paramètres. Voir plan §6.2 et §12.
+ */
+export function signerUpload(params: {
+  dossier: string;
+  publicId: string;
+  accesAuthentifie?: boolean;
+  typeRessource?: "image" | "raw" | "auto";
+}) {
+  const timestamp = Math.round(Date.now() / 1000);
+  const parametresASigner: Record<string, string | number> = {
+    timestamp,
+    folder: params.dossier,
+    public_id: params.publicId,
+    ...(params.accesAuthentifie ? { access_mode: "authenticated", type: "authenticated" } : {}),
+  };
+
+  const signature = cloudinary.utils.api_sign_request(
+    parametresASigner,
+    cloudinary.config().api_secret as string,
+  );
+
+  return {
+    timestamp,
+    signature,
+    apiKey: cloudinary.config().api_key,
+    cloudName: cloudinary.config().cloud_name,
+    dossier: params.dossier,
+    publicId: params.publicId,
+    typeRessource: params.typeRessource ?? "auto",
+    accesAuthentifie: params.accesAuthentifie ?? false,
+  };
+}
+
+/** URL signée à courte durée pour livrer un fichier privé (documents, fichiers clients). */
+export function urlSigneeTemporaire(publicId: string, options?: { typeRessource?: "image" | "raw"; nomTelechargement?: string; dureeSecondes?: number }) {
+  const expireLe = Math.floor(Date.now() / 1000) + (options?.dureeSecondes ?? 24 * 3600);
+  return cloudinary.utils.private_download_url(publicId, "", {
+    resource_type: options?.typeRessource ?? "raw",
+    type: "authenticated",
+    expires_at: expireLe,
+    attachment: true,
+    ...(options?.nomTelechargement ? { target_filename: options.nomTelechargement } : {}),
+  });
+}

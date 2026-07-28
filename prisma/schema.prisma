@@ -1,0 +1,688 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// 1. IDENTITÉ & ACCÈS
+// ─────────────────────────────────────────────────────────────
+
+enum Role {
+  CLIENT
+  ADMIN
+  COMMERCIAL
+  PRODUCTION
+  LECTURE
+  SUPER_ADMIN
+}
+
+model Utilisateur {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  motDePasseHash    String?
+  role              Role      @default(CLIENT)
+  nom               String
+  prenom            String?
+  telephone         String?
+  entreprise        String?
+  adresse           String?
+  ville             String?
+  codeClient        String?   @unique
+  emailVerifie      DateTime?
+  actif             Boolean   @default(true)
+  derniereConnexion DateTime?
+  creeLe            DateTime  @default(now())
+  majLe             DateTime  @updatedAt
+
+  sessions   Session[]
+  commandes  Commande[]
+  notations  NotationRessource[]
+
+  @@index([role, actif])
+}
+
+model Session {
+  id            String    @id @default(uuid())
+  utilisateurId String
+  jetonHash     String    @unique
+  adresseIp     String?
+  agentUtil     String?
+  expireLe      DateTime
+  revoqueeLe    DateTime?
+  creeLe        DateTime  @default(now())
+
+  utilisateur Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+
+  @@index([utilisateurId, expireLe])
+}
+
+model JetonUsageUnique {
+  id        String    @id @default(uuid())
+  type      String // VERIF_EMAIL | RESET_MDP | INVITATION
+  jetonHash String    @unique
+  cible     String
+  expireLe  DateTime
+  utiliseLe DateTime?
+  creeLe    DateTime  @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────
+// 2. CATALOGUE & TARIFICATION
+// ─────────────────────────────────────────────────────────────
+
+enum ModeTarification {
+  SURFACE
+  QUANTITE
+  FORFAIT
+  SUR_DEVIS
+}
+
+model CategorieService {
+  id          String  @id @default(uuid())
+  slug        String  @unique
+  nom         String
+  description String?
+  icone       String?
+  imageId     String?
+  ordre       Int     @default(0)
+  visible     Boolean @default(true)
+
+  services Service[]
+}
+
+model Service {
+  id             String            @id @default(uuid())
+  categorieId    String
+  slug           String            @unique
+  nom            String
+  resume         String
+  description    String
+  mode           ModeTarification
+  unite          String?
+  prixBaseCents  BigInt            @default(0)
+  prixMinCents   BigInt            @default(0)
+  delaiJours     Int               @default(3)
+  surfaceMinFt2  Decimal?          @db.Decimal(10, 4)
+  surfaceMaxFt2  Decimal?          @db.Decimal(10, 4)
+  quantiteMin    Int               @default(1)
+  quantiteMax    Int?
+  fichierRequis  Boolean           @default(true)
+  visible        Boolean           @default(true)
+  ordre          Int               @default(0)
+  seoTitre       String?
+  seoDescription String?
+  creeLe         DateTime          @default(now())
+  majLe          DateTime          @updatedAt
+
+  categorie CategorieService   @relation(fields: [categorieId], references: [id])
+  attributs AttributService[]
+  paliers   PalierQuantite[]
+  medias    MediaService[]
+
+  @@index([categorieId, visible, ordre])
+}
+
+enum TypeAttribut {
+  CHOIX
+  DIMENSION
+  NOMBRE
+  BOOLEEN
+  TEXTE
+}
+
+model AttributService {
+  id          String       @id @default(uuid())
+  serviceId   String
+  cle         String
+  libelle     String
+  type        TypeAttribut
+  obligatoire Boolean      @default(true)
+  ordre       Int          @default(0)
+  aide        String?
+
+  service Service          @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  options OptionAttribut[]
+
+  @@unique([serviceId, cle])
+}
+
+model OptionAttribut {
+  id                      String   @id @default(uuid())
+  attributId              String
+  valeur                  String
+  libelle                 String
+  coefficient             Decimal? @db.Decimal(8, 4)
+  supplementCents         BigInt?
+  supplementParUniteCents BigInt?
+  imageId                 String?
+  disponible              Boolean  @default(true)
+  ordre                   Int      @default(0)
+
+  attribut AttributService @relation(fields: [attributId], references: [id], onDelete: Cascade)
+
+  @@unique([attributId, valeur])
+}
+
+model PalierQuantite {
+  id                String   @id @default(uuid())
+  serviceId         String
+  quantiteMin       Int
+  quantiteMax       Int?
+  remisePct         Decimal? @db.Decimal(5, 2)
+  prixUnitaireCents BigInt?
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@index([serviceId, quantiteMin])
+}
+
+model MediaService {
+  id        String @id @default(uuid())
+  serviceId String
+  publicId  String
+  alt       String
+  ordre     Int    @default(0)
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+}
+
+model VersionTarifs {
+  id          String   @id @default(uuid())
+  numero      Int      @unique
+  snapshot    Json
+  appliqueeLe DateTime @default(now())
+  parId       String?
+}
+
+model Realisation {
+  id                String    @id @default(uuid())
+  slug              String    @unique
+  titre             String
+  client            String?
+  description       String?
+  serviceIds        String[]
+  publicIdPrincipal String
+  galerie           Json
+  dateProjet        DateTime?
+  miseEnAvant       Boolean   @default(false)
+  visible           Boolean   @default(true)
+  ordre             Int       @default(0)
+  creeLe            DateTime  @default(now())
+
+  @@index([visible, miseEnAvant, ordre])
+}
+
+// ─────────────────────────────────────────────────────────────
+// 3. COMMANDES
+// ─────────────────────────────────────────────────────────────
+
+enum StatutCommande {
+  BROUILLON
+  DEVIS_DEMANDE
+  DEVIS_ENVOYE
+  DEVIS_ACCEPTE
+  DEVIS_REFUSE
+  EN_ATTENTE_PAIEMENT
+  PAYEE
+  FICHIERS_A_VERIFIER
+  BAT_EN_ATTENTE
+  BAT_VALIDE
+  EN_PRODUCTION
+  PRETE
+  LIVREE
+  CLOTUREE
+  ANNULEE
+}
+
+enum ModeLivraison {
+  RETRAIT_ATELIER
+  LIVRAISON_PORT_AU_PRINCE
+  LIVRAISON_PROVINCE
+}
+
+model Commande {
+  id                  String          @id @default(uuid())
+  numero              String          @unique
+  utilisateurId       String?
+  emailContact        String
+  nomContact          String
+  telContact          String
+  entreprise          String?
+  statut              StatutCommande  @default(BROUILLON)
+  modeLivraison       ModeLivraison   @default(RETRAIT_ATELIER)
+  adresseLivraison    String?
+  fraisLivraisonCents BigInt          @default(0)
+  sousTotalCents      BigInt          @default(0)
+  remiseCents         BigInt          @default(0)
+  taxeCents           BigInt          @default(0)
+  totalCents          BigInt          @default(0)
+  devise              String          @default("HTG")
+  notesClient         String?
+  notesInternes       String?
+  dateSouhaitee       DateTime?
+  dateLivraisonPrevue DateTime?
+  cleIdempotence      String?         @unique
+  creeLe              DateTime        @default(now())
+  majLe               DateTime        @updatedAt
+
+  utilisateur Utilisateur?        @relation(fields: [utilisateurId], references: [id])
+  lignes      LigneCommande[]
+  fichiers    FichierClient[]
+  devis       Devis[]
+  factures    Facture[]
+  paiements   Paiement[]
+  evenements  EvenementCommande[]
+  bonsATirer  BonATirer[]
+
+  @@index([utilisateurId, creeLe])
+  @@index([statut, creeLe])
+}
+
+model LigneCommande {
+  id                String  @id @default(uuid())
+  commandeId        String
+  serviceId         String
+  serviceNom        String
+  specifications     Json
+  detailPrix        Json
+  quantite          Int     @default(1)
+  surfaceFt2        Decimal? @db.Decimal(10, 4)
+  prixUnitaireCents BigInt
+  totalCents        BigInt
+  versionTarifsId   String?
+
+  commande Commande        @relation(fields: [commandeId], references: [id], onDelete: Cascade)
+  fichiers FichierClient[]
+
+  @@index([commandeId])
+}
+
+model EvenementCommande {
+  id            String          @id @default(uuid())
+  commandeId    String
+  type          String
+  ancienStatut  StatutCommande?
+  nouveauStatut StatutCommande?
+  message       String
+  visibleClient Boolean         @default(true)
+  auteurId      String?
+  creeLe        DateTime        @default(now())
+
+  commande Commande @relation(fields: [commandeId], references: [id], onDelete: Cascade)
+
+  @@index([commandeId, creeLe])
+}
+
+// ─────────────────────────────────────────────────────────────
+// 4. FICHIERS (Cloudinary)
+// ─────────────────────────────────────────────────────────────
+
+enum StatutFichier {
+  EN_ATTENTE_UPLOAD
+  RECU
+  EN_VERIFICATION
+  VALIDE
+  REJETE
+  ARCHIVE
+}
+
+model FichierClient {
+  id               String        @id @default(uuid())
+  commandeId       String
+  ligneId          String?
+  publicId         String        @unique
+  resourceType     String
+  typeLivraison    String
+  nomOriginal      String
+  extension        String
+  tailleOctets     BigInt
+  largeurPx        Int?
+  hauteurPx        Int?
+  dpi              Int?
+  espaceCouleur    String?
+  nbPages          Int?
+  apercuPublicId   String?
+  statut           StatutFichier @default(EN_ATTENTE_UPLOAD)
+  motifRejet       String?
+  alertesPreflight Json?
+  televerseLe      DateTime?
+  creeLe           DateTime      @default(now())
+
+  commande Commande       @relation(fields: [commandeId], references: [id], onDelete: Cascade)
+  ligne    LigneCommande? @relation(fields: [ligneId], references: [id])
+
+  @@index([commandeId, statut])
+}
+
+model BonATirer {
+  id            String    @id @default(uuid())
+  commandeId    String
+  version       Int
+  publicId      String
+  commentaire   String?
+  statut        String    @default("EN_ATTENTE")
+  reponseClient String?
+  repondueLe    DateTime?
+  creeLe        DateTime  @default(now())
+
+  commande Commande @relation(fields: [commandeId], references: [id], onDelete: Cascade)
+
+  @@unique([commandeId, version])
+}
+
+// ─────────────────────────────────────────────────────────────
+// 5. DEVIS & FACTURES
+// ─────────────────────────────────────────────────────────────
+
+enum StatutDevis {
+  BROUILLON
+  ENVOYE
+  ACCEPTE
+  REFUSE
+  EXPIRE
+  ANNULE
+}
+
+enum StatutFacture {
+  EMISE
+  PARTIELLEMENT_PAYEE
+  PAYEE
+  EN_RETARD
+  ANNULEE
+}
+
+model Devis {
+  id             String      @id @default(uuid())
+  numero         String      @unique
+  commandeId     String
+  statut         StatutDevis @default(BROUILLON)
+  contenu        Json
+  sousTotalCents BigInt
+  remiseCents    BigInt      @default(0)
+  taxeTauxPct    Decimal     @default(0) @db.Decimal(5, 2)
+  taxeCents      BigInt      @default(0)
+  totalCents     BigInt
+  devise         String      @default("HTG")
+  validiteJours  Int         @default(15)
+  expireLe       DateTime
+  pdfPublicId    String?
+  envoyeLe       DateTime?
+  vuLe           DateTime?
+  accepteLe      DateTime?
+  refuseLe       DateTime?
+  motifRefus     String?
+  factureId      String?     @unique
+  creeParId      String?
+  creeLe         DateTime    @default(now())
+
+  commande Commande @relation(fields: [commandeId], references: [id])
+
+  @@index([commandeId])
+  @@index([statut, expireLe])
+}
+
+model Facture {
+  id              String        @id @default(uuid())
+  numero          String        @unique
+  commandeId      String
+  devisOrigineId  String?
+  statut          StatutFacture @default(EMISE)
+  contenu         Json
+  sousTotalCents  BigInt
+  remiseCents     BigInt        @default(0)
+  taxeTauxPct     Decimal       @default(0) @db.Decimal(5, 2)
+  taxeCents       BigInt        @default(0)
+  totalCents      BigInt
+  payeCents       BigInt        @default(0)
+  devise          String        @default("HTG")
+  echeanceLe      DateTime?
+  pdfPublicId     String?
+  envoyeeLe       DateTime?
+  payeeLe         DateTime?
+  annuleeLe       DateTime?
+  motifAnnulation String?
+  avoirDeId       String?
+  creeLe          DateTime      @default(now())
+
+  commande  Commande   @relation(fields: [commandeId], references: [id])
+  paiements Paiement[]
+
+  @@index([commandeId])
+  @@index([statut, echeanceLe])
+}
+
+model CompteurDocument {
+  type    String
+  annee   Int
+  dernier Int    @default(0)
+
+  @@id([type, annee])
+}
+
+model ParametresEntreprise {
+  id                Int      @id @default(1)
+  raisonSociale     String
+  adresse           String
+  ville             String
+  telephone         String
+  email             String
+  siteWeb           String?
+  nif               String?
+  logoPublicId      String?
+  banques           Json
+  moncashNumero     String?
+  natcashNumero     String?
+  conditionsDevis   String
+  conditionsFacture String
+  tauxTaxePct       Decimal  @default(0) @db.Decimal(5, 2)
+  tauxChangeUSD     Decimal? @db.Decimal(12, 6)
+  majLe             DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────
+// 6. PAIEMENTS
+// ─────────────────────────────────────────────────────────────
+
+enum Fournisseur {
+  MONCASH
+  STRIPE
+  ESPECES
+  VIREMENT
+  CHEQUE
+  NATCASH
+}
+
+enum StatutPaiement {
+  INITIE
+  EN_ATTENTE
+  A_ENCAISSER
+  REUSSI
+  ECHOUE
+  REJETE
+  EXPIRE
+  ANNULE
+  REMBOURSE
+}
+
+model IntentionPaiement {
+  id               String         @id @default(uuid())
+  reference        String         @unique
+  commandeId       String
+  factureId        String?
+  fournisseur      Fournisseur
+  montantCents     BigInt
+  devise           String         @default("HTG")
+  statut           StatutPaiement @default(INITIE)
+  jetonFournisseur String?
+  urlRedirection   String?
+  reponseCreation  Json?
+  cleIdempotence   String         @unique
+  expireLe         DateTime
+  creeLe           DateTime       @default(now())
+  majLe            DateTime       @updatedAt
+
+  @@index([commandeId, statut])
+  @@index([statut, expireLe])
+}
+
+model Paiement {
+  id                     String         @id @default(uuid())
+  intentionId            String         @unique
+  commandeId             String
+  factureId              String?
+  fournisseur            Fournisseur
+  statut                 StatutPaiement @default(REUSSI)
+  montantCents           BigInt
+  devise                 String         @default("HTG")
+  montantEncaisseCents   BigInt?
+  deviseEncaissement     String?
+  tauxChange             Decimal?       @db.Decimal(12, 6)
+  fraisCents             BigInt         @default(0)
+  refFournisseur         String
+  telephonePayeur        String?
+  reponseBrute           Json?
+  banqueEmettrice        String?
+  numeroCheque           String?
+  dateCheque             DateTime?
+  dateEncaissementPrevue DateTime?
+  justificatifPublicId   String?
+  motifRejet             String?
+  confirmeLe             DateTime?
+  saisiParId             String?
+  valideParId            String?
+  creeLe                 DateTime       @default(now())
+  majLe                  DateTime       @updatedAt
+
+  facture  Facture? @relation(fields: [factureId], references: [id])
+  commande Commande @relation(fields: [commandeId], references: [id])
+
+  @@unique([fournisseur, refFournisseur])
+  @@index([statut, dateEncaissementPrevue])
+  @@index([confirmeLe])
+}
+
+model EvenementWebhook {
+  id          String    @id @default(uuid())
+  fournisseur Fournisseur
+  signature   String?
+  empreinte   String    @unique
+  corps       Json
+  entetes     Json
+  traiteLe    DateTime?
+  erreur      String?
+  recuLe      DateTime  @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────
+// 7. RESSOURCES GRAPHIQUES
+// ─────────────────────────────────────────────────────────────
+
+model CategorieRessource {
+  id          String  @id @default(uuid())
+  slug        String  @unique
+  nom         String
+  description String?
+  parentId    String?
+  ordre       Int     @default(0)
+
+  ressources Ressource[]
+}
+
+model Ressource {
+  id                String    @id @default(uuid())
+  slug              String    @unique
+  categorieId       String
+  titre             String
+  description       String?
+  motsCles          String[]
+  formats           Json
+  apercuPublicId    String
+  licence           String    @default("GRATUIT_USAGE_LIBRE")
+  auteur            String?
+  nbTelechargements Int       @default(0)
+  noteMoyenne       Decimal   @default(0) @db.Decimal(3, 2)
+  nbNotes           Int       @default(0)
+  publiee           Boolean   @default(false)
+  miseEnAvant       Boolean   @default(false)
+  rechercheVec      Unsupported("tsvector")?
+  publieeLe         DateTime?
+  creeLe            DateTime  @default(now())
+
+  categorie       CategorieRessource        @relation(fields: [categorieId], references: [id])
+  telechargements TelechargementRessource[]
+  notations       NotationRessource[]
+
+  @@index([categorieId, publiee])
+  @@index([publiee, nbTelechargements])
+}
+
+model TelechargementRessource {
+  id            String   @id @default(uuid())
+  ressourceId   String
+  format        String
+  utilisateurId String?
+  ipHash        String
+  paysCode      String?
+  creeLe        DateTime @default(now())
+
+  ressource Ressource @relation(fields: [ressourceId], references: [id], onDelete: Cascade)
+
+  @@index([ressourceId, creeLe])
+}
+
+model NotationRessource {
+  id            String   @id @default(uuid())
+  ressourceId   String
+  utilisateurId String?
+  ipHash        String
+  note          Int
+  creeLe        DateTime @default(now())
+
+  ressource   Ressource    @relation(fields: [ressourceId], references: [id], onDelete: Cascade)
+  utilisateur Utilisateur? @relation(fields: [utilisateurId], references: [id])
+
+  @@unique([ressourceId, ipHash])
+}
+
+// ─────────────────────────────────────────────────────────────
+// 8. TRANSVERSE
+// ─────────────────────────────────────────────────────────────
+
+model JournalAudit {
+  id         String   @id @default(uuid())
+  acteurId   String?
+  acteurRole Role?
+  action     String
+  entite     String
+  entiteId   String
+  avant      Json?
+  apres      Json?
+  adresseIp  String?
+  creeLe     DateTime @default(now())
+
+  @@index([entite, entiteId, creeLe])
+  @@index([acteurId, creeLe])
+}
+
+model MessageContact {
+  id        String    @id @default(uuid())
+  nom       String
+  email     String
+  telephone String?
+  sujet     String
+  message   String
+  traiteLe  DateTime?
+  creeLe    DateTime  @default(now())
+}
+
+model AbonneNewsletter {
+  id          String    @id @default(uuid())
+  email       String    @unique
+  confirmeLe  DateTime?
+  desabonneLe DateTime?
+  creeLe      DateTime  @default(now())
+}
