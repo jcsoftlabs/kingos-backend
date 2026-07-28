@@ -34,6 +34,19 @@ await app.register(cors, {
   origin: [env.URL_FRONTEND],
   credentials: true,
 });
+
+// Capture le corps brut avant parsing JSON : la vérification de signature des
+// webhooks (Cloudinary, futurs MonCash/Stripe) doit hacher exactement les
+// octets reçus, pas une resérialisation de l'objet parsé qui peut différer
+// par l'ordre des clés ou les espaces.
+app.addContentTypeParser("application/json", { parseAs: "string" }, (requete, corps, fait) => {
+  requete.rawBody = corps as string;
+  try {
+    fait(null, (corps as string).length ? JSON.parse(corps as string) : {});
+  } catch (erreur) {
+    fait(erreur as Error, undefined);
+  }
+});
 await app.register(rateLimit, { max: 100, timeWindow: "1 minute" });
 
 app.setErrorHandler((erreur: FastifyError | ErreurMetier | ZodError, requete, reponse) => {

@@ -1,8 +1,18 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { db } from "../../core/db.js";
-import { dossiersCloudinary, signerUpload } from "../../core/cloudinary.js";
+import { dossiersCloudinary, signerUpload, verifierSignatureWebhook } from "../../core/cloudinary.js";
 import { ErreurValidation } from "../../core/erreurs.js";
+
+const schemaNotificationCloudinary = z.object({
+  notification_type: z.string().optional(),
+  public_id: z.string().optional(),
+  bytes: z.number().optional(),
+  width: z.number().optional(),
+  height: z.number().optional(),
+  format: z.string().optional(),
+  pages: z.number().optional(),
+});
 
 const EXTENSIONS_AUTORISEES = new Set(["pdf", "ai", "eps", "psd", "svg", "jpg", "jpeg", "png", "tiff", "zip"]);
 const TAILLE_MAX_OCTETS = 400 * 1024 * 1024; // 400 Mo — cf. plan §12.3, à confirmer selon le plan Cloudinary retenu
@@ -60,9 +70,54 @@ export async function routesFichiers(app: FastifyInstance) {
   });
 
   // Webhook Cloudinary : confirme la réception effective du fichier (plan §6.2 étape 4).
+  // Signature vérifiée avant tout traitement (plan §12.2) — sans ça, n'importe
+  // qui peut forger un public_id et faire passer un fichier en RECU sans
+  // qu'il ait jamais transité par Cloudinary.
   app.post("/api/webhooks/cloudinary", async (requete, reponse) => {
-    // TODO : vérifier x-cld-signature / x-cld-timestamp avant tout traitement (plan §12.2).
-    app.log.info({ body: requete.body }, "webhook Cloudinary reçu");
+    const signature = requete.headers["x-cld-signature"];
+    const timestamp = requete.headers["x-cld-timestamp"];
+
+    if (typeof signature !== "string" || typeof timestamp !== "string" || !requete.rawBody) {
+      app.log.warn("Webhook Cloudinary reçu sans en-têtes de signature");
+      return reponse.code(401).send({ succes: false, erreur: { code: "NON_AUTORISE", message: "Signature manquante" } });
+    }
+
+    const valide = verifierSignatureWebhook(requete.rawBody, timestamp, signature);
+    if (!valide) {
+      app.log.warn("Webhook Cloudinary : signature invalide");
+      return reponse.code(401).send({ succes: false, erreur: { code: "NON_AUTORISE", message: "Signature invalide" } });
+    }
+
+    const notification = schemaNotificationCloudinary.parse(requete.body);
+
+    if (notification.public_id) {
+      const fichier = await db.fichierClient.findUnique({ where: { publicId: notification.public_id } });
+      // Fichier introuvable : peut être un upload d'un autre module (ressources,
+      // réalisations) qui partage la même URL de notification. On ignore
+      // silencieusement plutôt que de faire échouer le webhook — Cloudinary
+      // réessaierait indéfiniment sur une 4xx/5xx.
+      if (fichier) {
+        await db.fichierClient.update({
+          where: { id: fichier.id },
+          data: {
+            statut: "RECU",
+            tailleOctets: notification.bytes ? BigInt(notification.bytes) : fichier.tailleOctets,
+            largeurPx: notification.width ?? fichier.largeurPx,
+            hauteurPx: notification.height ?? fichier.hauteurPx,
+            nbPages: notification.pages ?? fichier.nbPages,
+            televerseLe: new Date(),
+          },
+        });
+        await db.evenementCommande.create({
+          data: {
+            commandeId: fichier.commandeId,
+            type: "FICHIER_RECU",
+            message: `Fichier « ${fichier.nomOriginal} » reçu`,
+          },
+        });
+      }
+    }
+
     return reponse.code(200).send({ succes: true });
   });
 }

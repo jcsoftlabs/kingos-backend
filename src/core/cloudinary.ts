@@ -53,6 +53,16 @@ export function signerUpload(params: {
   };
 }
 
+/**
+ * Vérifie la signature d'un webhook Cloudinary avant tout traitement
+ * (plan §12.2) — sans ça, n'importe qui peut appeler /api/webhooks/cloudinary
+ * avec un faux public_id et faire passer un fichier client en RECU sans
+ * qu'il ait jamais été réellement téléversé.
+ */
+export function verifierSignatureWebhook(corpsBrut: string, timestamp: string, signature: string): boolean {
+  return cloudinary.utils.verifyNotificationSignature(corpsBrut, Number(timestamp), signature);
+}
+
 /** URL signée à courte durée pour livrer un fichier privé (documents, fichiers clients). */
 export function urlSigneeTemporaire(publicId: string, options?: { typeRessource?: "image" | "raw"; nomTelechargement?: string; dureeSecondes?: number }) {
   const expireLe = Math.floor(Date.now() / 1000) + (options?.dureeSecondes ?? 24 * 3600);
