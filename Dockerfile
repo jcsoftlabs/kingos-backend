@@ -3,9 +3,9 @@ RUN corepack enable
 WORKDIR /app
 
 FROM base AS dependances
-COPY package.json pnpm-lock.yaml* ./
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
 COPY prisma ./prisma
-RUN pnpm install --frozen-lockfile || pnpm install
+RUN pnpm install --frozen-lockfile
 
 FROM base AS build
 COPY --from=dependances /app/node_modules ./node_modules
