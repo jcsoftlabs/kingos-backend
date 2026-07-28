@@ -20,8 +20,11 @@ const schemaLigneLibre = z.object({
 });
 
 export const schemaVenteRapide = z.object({
-  nomContact: z.string().min(1),
-  telContact: z.string().min(1),
+  // Facultatifs : un client de passage au comptoir ("walk-in") n'a souvent
+  // ni le temps ni l'envie de décliner son identité pour un petit travail
+  // ponctuel — voir les valeurs par défaut dans creerVenteRapide.
+  nomContact: z.string().min(1).optional(),
+  telContact: z.string().min(1).optional(),
   emailContact: z.string().email().optional(),
   entreprise: z.string().optional(),
   typeClient: z.enum(["PARTICULIER", "ENTREPRISE", "ONG", "INSTITUTION_ETATIQUE"]).default("PARTICULIER"),
@@ -56,8 +59,8 @@ export async function creerVenteRapide(entree: EntreeVenteRapide, acteur: { id: 
         numero: numeroCommande,
         utilisateurId: null,
         emailContact,
-        nomContact: entree.nomContact,
-        telContact: entree.telContact,
+        nomContact: entree.nomContact || "Client de passage",
+        telContact: entree.telContact || "N/A",
         entreprise: entree.entreprise,
         typeClient: entree.typeClient,
         statut: "PAYEE",
@@ -95,7 +98,12 @@ export async function creerVenteRapide(entree: EntreeVenteRapide, acteur: { id: 
         banques: parametres.banques,
         moncashNumero: parametres.moncashNumero,
       },
-      client: { nom: entree.nomContact, email: emailContact, telephone: entree.telContact, entreprise: entree.entreprise ?? null },
+      client: {
+        nom: entree.nomContact || "Client de passage",
+        email: emailContact,
+        telephone: entree.telContact || "N/A",
+        entreprise: entree.entreprise ?? null,
+      },
       lignes: entree.lignes.map((l) => ({
         serviceNom: l.description,
         specifications: {},
@@ -174,17 +182,18 @@ export async function creerVenteRapide(entree: EntreeVenteRapide, acteur: { id: 
   // d'envoi vers l'adresse placeholder générée pour les ventes sans e-mail.
   if (resultat.emailReel) {
     const pdf = await genererBufferPdfFacture(resultat.facture.id).catch(() => undefined);
+    const nomPourEmail = entree.nomContact || "Client de passage";
     await envoyerFactureEmise({
       destinataire: resultat.emailContact,
       numero: resultat.facture.numero,
-      nomContact: entree.nomContact,
+      nomContact: nomPourEmail,
       totalFormate: formaterHTG(totalCents),
       pdf,
     });
     await envoyerPaiementConfirme({
       destinataire: resultat.emailContact,
       numeroFacture: resultat.facture.numero,
-      nomContact: entree.nomContact,
+      nomContact: nomPourEmail,
       montantFormate: formaterHTG(totalCents),
       pdf,
     });
