@@ -27,12 +27,13 @@ export async function obtenirUrlPdfDevis(numero: string): Promise<string> {
       dossier: dossiersCloudinary.documents("devis"),
       publicId: devis.numero,
       accesAuthentifie: true,
+      format: "pdf",
     });
     publicId = televerse.publicId;
     await db.devis.update({ where: { id: devis.id }, data: { pdfPublicId: publicId } });
   }
 
-  return urlSigneeTemporaire(publicId, { typeRessource: "raw", nomTelechargement: `${devis.numero}.pdf`, dureeSecondes: 300 });
+  return urlSigneeTemporaire(publicId, { typeRessource: "raw", nomTelechargement: devis.numero, dureeSecondes: 300 });
 }
 
 export async function obtenirUrlPdfFacture(numero: string): Promise<string> {
@@ -53,12 +54,13 @@ export async function obtenirUrlPdfFacture(numero: string): Promise<string> {
       dossier: dossiersCloudinary.documents("factures"),
       publicId: facture.numero,
       accesAuthentifie: true,
+      format: "pdf",
     });
     publicId = televerse.publicId;
     await db.facture.update({ where: { id: facture.id }, data: { pdfPublicId: publicId } });
   }
 
-  return urlSigneeTemporaire(publicId, { typeRessource: "raw", nomTelechargement: `${facture.numero}.pdf`, dureeSecondes: 300 });
+  return urlSigneeTemporaire(publicId, { typeRessource: "raw", nomTelechargement: facture.numero, dureeSecondes: 300 });
 }
 
 /** Génère le buffer PDF sans passer par Cloudinary — utilisé pour l'attacher directement à l'e-mail. */

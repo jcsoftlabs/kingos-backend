@@ -64,7 +64,10 @@ export function verifierSignatureWebhook(corpsBrut: string, timestamp: string, s
 }
 
 /** Envoie un buffer généré côté serveur (PDF de devis/facture) — pas de signature côté client nécessaire, c'est nous qui le produisons. */
-export function televerserBuffer(buffer: Buffer, params: { dossier: string; publicId: string; accesAuthentifie?: boolean }): Promise<{ publicId: string }> {
+export function televerserBuffer(
+  buffer: Buffer,
+  params: { dossier: string; publicId: string; accesAuthentifie?: boolean; format?: string },
+): Promise<{ publicId: string }> {
   return new Promise((resolve, reject) => {
     const flux = cloudinary.uploader.upload_stream(
       {
@@ -72,6 +75,12 @@ export function televerserBuffer(buffer: Buffer, params: { dossier: string; publ
         public_id: params.publicId,
         resource_type: "raw",
         overwrite: true,
+        // Sans `format`, une ressource "raw" n'a aucun type de fichier
+        // enregistré côté Cloudinary : le téléchargement renvoyait
+        // Content-Type: application/octet-stream et un nom de fichier sans
+        // extension, illisible pour la plupart des visionneuses PDF (trouvé
+        // en inspectant réellement la réponse HTTP, pas en supposant).
+        ...(params.format ? { format: params.format } : {}),
         ...(params.accesAuthentifie ? { access_mode: "authenticated", type: "authenticated" } : {}),
       },
       (erreur, resultat) => {
@@ -90,7 +99,16 @@ export function urlSigneeTemporaire(publicId: string, options?: { typeRessource?
     resource_type: options?.typeRessource ?? "raw",
     type: "authenticated",
     expires_at: expireLe,
-    attachment: true,
-    ...(options?.nomTelechargement ? { target_filename: options.nomTelechargement } : {}),
+    // `target_filename` n'existe pas dans l'API Cloudinary — silencieusement
+    // ignoré par le SDK (voir node_modules/cloudinary/lib/utils/index.js,
+    // private_download_url ne signe que timestamp/public_id/format/type/
+    // attachment/expires_at). Le nom de fichier se fixe en passant une
+    // chaîne à `attachment` lui-même, pas via un paramètre séparé — sans ça
+    // le navigateur enregistrait le PDF sous le nom générique "file", sans
+    // extension ni Content-Type, illisible pour la plupart des visionneuses.
+    // Le typage du SDK ne déclare que `boolean`, mais l'implémentation réelle
+    // (voir commentaire ci-dessus) accepte n'importe quelle valeur et la
+    // signe telle quelle — Cloudinary l'utilise comme nom de fichier.
+    attachment: (options?.nomTelechargement ?? true) as unknown as boolean,
   });
 }
