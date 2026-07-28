@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { db } from "../../core/db.js";
 import { exigerBackOffice } from "../../core/auth-requete.js";
 import { peutVoirMontants, masquerMontantsSiNecessaire } from "../../core/portee.js";
+import { calculerTableauDeBord } from "./tableau-de-bord-service.js";
 
 const CHAMPS_MONTANTS_COMMANDE = ["sousTotalCents", "remiseCents", "taxeCents", "totalCents", "fraisLivraisonCents"] as const;
 const CHAMPS_MONTANTS_FACTURE = ["sousTotalCents", "remiseCents", "taxeCents", "totalCents", "payeCents"] as const;
@@ -76,34 +77,24 @@ export async function routesAdmin(app: FastifyInstance) {
 
   app.get("/api/admin/tableau-de-bord", async (requete) => {
     const utilisateur = await exigerBackOffice(requete);
+    const tableau = await calculerTableauDeBord();
 
-    const debutMois = new Date();
-    debutMois.setUTCDate(1);
-    debutMois.setUTCHours(0, 0, 0, 0);
-
-    const [
-      commandesParStatut,
-      devisEnAttente,
-      facturesImpayees,
-      facturesPayeesCeMois,
-    ] = await Promise.all([
-      db.commande.groupBy({ by: ["statut"], _count: { _all: true } }),
-      db.devis.count({ where: { statut: "ENVOYE", expireLe: { gt: new Date() } } }),
-      db.facture.count({ where: { statut: { in: ["EMISE", "PARTIELLEMENT_PAYEE", "EN_RETARD"] } } }),
-      db.facture.findMany({
-        where: { statut: "PAYEE", payeeLe: { gte: debutMois } },
-        select: { totalCents: true },
-      }),
-    ]);
-
-    const caDuMois = facturesPayeesCeMois.reduce((acc, f) => acc + f.totalCents, 0n);
-
-    const tableau = {
-      commandesParStatut: commandesParStatut.map((c) => ({ statut: c.statut, total: c._count._all })),
-      devisEnAttente,
-      facturesImpayees,
-      caDuMoisCents: peutVoirMontants(utilisateur) ? caDuMois : null,
-    };
+    // PRODUCTION voit l'activité mais aucun montant (plan §10.1) : on annule
+    // chaque champ monétaire, y compris ceux nichés dans les séries.
+    if (!peutVoirMontants(utilisateur)) {
+      return {
+        succes: true,
+        donnees: {
+          ...tableau,
+          caDuMoisCents: null,
+          caMoisPrecedentCents: null,
+          montantImpayeCents: null,
+          panierMoyenCents: null,
+          caParMois: tableau.caParMois.map((m) => ({ mois: m.mois, caCents: null })),
+          topServices: tableau.topServices.map((s) => ({ ...s, caCents: null })),
+        },
+      };
+    }
 
     return { succes: true, donnees: tableau };
   });
