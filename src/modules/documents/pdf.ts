@@ -43,8 +43,8 @@ function formaterHTG(centimesTexte: string): string {
   // le PDF produit, pas en supposant que le formatage HTML se comporterait
   // pareil une fois rendu par une police PDF standard.
   const montant = Number(centimesTexte) / 100;
-  const formate = new Intl.NumberFormat("fr-HT", { style: "currency", currency: "HTG", maximumFractionDigits: 0 }).format(montant);
-  return formate.replace(/[  ]/g, " ");
+  const formate = new Intl.NumberFormat("fr-HT", { maximumFractionDigits: 0 }).format(montant);
+  return `${formate.replace(/[  ]/g, " ")} HTG`;
 }
 
 function formaterSpecifications(specs: Record<string, unknown>): string {
