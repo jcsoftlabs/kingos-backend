@@ -111,3 +111,67 @@ export async function obtenirDevisParNumero(numero: string) {
   if (!devis) throw new ErreurNonTrouve("Devis", numero);
   return devis;
 }
+
+/**
+ * Acceptation/refus par le client (plan §7.5). Un devis expiré ne peut plus
+ * être accepté — la validité affichée sur le PDF doit rester vraie.
+ */
+export async function accepterDevis(devisId: string) {
+  return db.$transaction(async (tx) => {
+    const devis = await tx.devis.findUnique({ where: { id: devisId }, include: { commande: true } });
+    if (!devis) throw new ErreurNonTrouve("Devis", devisId);
+    if (devis.statut !== "ENVOYE") throw new ErreurConflit(`Devis ${devis.numero} n'est pas en attente d'acceptation`);
+    if (devis.expireLe < new Date()) {
+      await tx.devis.update({ where: { id: devisId }, data: { statut: "EXPIRE" } });
+      throw new ErreurConflit(`Devis ${devis.numero} a expiré le ${devis.expireLe.toISOString().slice(0, 10)}`);
+    }
+
+    verifierTransition(devis.commande.statut, "DEVIS_ACCEPTE");
+
+    const misAJour = await tx.devis.update({
+      where: { id: devisId },
+      data: { statut: "ACCEPTE", accepteLe: new Date() },
+    });
+
+    await tx.commande.update({ where: { id: devis.commandeId }, data: { statut: "DEVIS_ACCEPTE" } });
+    await tx.evenementCommande.create({
+      data: {
+        commandeId: devis.commandeId,
+        type: "DEVIS_ACCEPTE",
+        ancienStatut: devis.commande.statut,
+        nouveauStatut: "DEVIS_ACCEPTE",
+        message: `Devis ${devis.numero} accepté par le client`,
+      },
+    });
+
+    return misAJour;
+  });
+}
+
+export async function refuserDevis(devisId: string, motif?: string) {
+  return db.$transaction(async (tx) => {
+    const devis = await tx.devis.findUnique({ where: { id: devisId }, include: { commande: true } });
+    if (!devis) throw new ErreurNonTrouve("Devis", devisId);
+    if (devis.statut !== "ENVOYE") throw new ErreurConflit(`Devis ${devis.numero} n'est pas en attente d'une réponse`);
+
+    verifierTransition(devis.commande.statut, "DEVIS_REFUSE");
+
+    const misAJour = await tx.devis.update({
+      where: { id: devisId },
+      data: { statut: "REFUSE", refuseLe: new Date(), motifRefus: motif },
+    });
+
+    await tx.commande.update({ where: { id: devis.commandeId }, data: { statut: "DEVIS_REFUSE" } });
+    await tx.evenementCommande.create({
+      data: {
+        commandeId: devis.commandeId,
+        type: "DEVIS_REFUSE",
+        ancienStatut: devis.commande.statut,
+        nouveauStatut: "DEVIS_REFUSE",
+        message: motif ? `Devis ${devis.numero} refusé — ${motif}` : `Devis ${devis.numero} refusé`,
+      },
+    });
+
+    return misAJour;
+  });
+}
