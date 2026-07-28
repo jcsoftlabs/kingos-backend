@@ -137,6 +137,19 @@ export async function envoyerPaiementConfirme(params: {
   });
 }
 
+export async function envoyerCodeConnexionEspace(params: { destinataire: string; code: string }) {
+  return envoyerEmail({
+    destinataire: params.destinataire,
+    sujet: `${params.code} — Votre code de connexion Kingo's`,
+    html: enveloppe(
+      "Votre code de connexion",
+      `<p>Voici votre code pour accéder à votre espace client :</p>
+       <p style="font-size:32px;font-weight:bold;letter-spacing:8px;text-align:center;margin:24px 0;color:#E6008C">${params.code}</p>
+       <p style="font-size:13px;color:#5F4EA0">Ce code expire dans 10 minutes. Si vous n'avez pas demandé cette connexion, ignorez cet e-mail.</p>`,
+    ),
+  });
+}
+
 export async function envoyerMessageContact(params: { nomExpediteur: string; emailExpediteur: string; sujetMessage: string; message: string }) {
   return envoyerEmail({
     destinataire: process.env.EMAIL_ADMIN ?? env.EMAIL_ADMIN,

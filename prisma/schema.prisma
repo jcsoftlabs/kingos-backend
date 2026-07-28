@@ -70,6 +70,22 @@ model JetonUsageUnique {
   creeLe    DateTime  @default(now())
 }
 
+// Connexion espace client sans mot de passe : un code à 4 chiffres envoyé
+// par e-mail. `tentatives` limite le brute-force (l'espace de recherche
+// d'un code à 4 chiffres est petit — la protection vient du nombre
+// d'essais et de l'expiration courte, pas de l'entropie du code).
+model CodeConnexionEspace {
+  id         String    @id @default(uuid())
+  email      String
+  codeHash   String
+  tentatives Int       @default(0)
+  expireLe   DateTime
+  utiliseLe  DateTime?
+  creeLe     DateTime  @default(now())
+
+  @@index([email, creeLe])
+}
+
 // ─────────────────────────────────────────────────────────────
 // 2. CATALOGUE & TARIFICATION
 // ─────────────────────────────────────────────────────────────
