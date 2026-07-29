@@ -9,6 +9,24 @@ import { schemaModificationParametres, obtenirParametresEntreprise, modifierPara
 const ROLES_ECRITURE = ["SUPER_ADMIN", "ADMIN"] as const;
 
 export async function routesParametres(app: FastifyInstance) {
+  // Sous-ensemble public — les pages légales (mentions, CGV) et le pied de
+  // page affichent l'adresse/téléphone/NIF réels sans jamais exposer les
+  // coordonnées bancaires ou MonCash de /api/admin/parametres.
+  app.get("/api/parametres-publics", async () => {
+    const p = await obtenirParametresEntreprise();
+    return {
+      succes: true,
+      donnees: {
+        raisonSociale: p.raisonSociale,
+        adresse: p.adresse,
+        ville: p.ville,
+        telephone: p.telephone,
+        email: p.email,
+        nif: p.nif,
+      },
+    };
+  });
+
   app.get("/api/admin/parametres", async (requete) => {
     const utilisateur = await utilisateurDeLaRequete(requete);
     exigeRole(utilisateur, ROLES_BACK_OFFICE);
