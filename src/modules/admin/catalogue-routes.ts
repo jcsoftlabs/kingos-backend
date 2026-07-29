@@ -18,6 +18,8 @@ import {
   creerAttribut,
   creerOption,
 } from "./catalogue-service.js";
+import { importerCatalogueCsv } from "./catalogue-import.js";
+import { z } from "zod";
 
 // Le catalogue est modifiable par SUPER_ADMIN/ADMIN uniquement — un compte
 // COMMERCIAL a un accès back-office mais reste en lecture seule sur les
@@ -92,5 +94,15 @@ export async function routesAdminCatalogue(app: FastifyInstance) {
     const entree = schemaCreationOption.parse(requete.body);
     const option = await creerOption(requete.params.id, entree);
     return { succes: true, donnees: option };
+  });
+
+  const schemaImport = z.object({ csv: z.string().min(1) });
+
+  app.post("/api/admin/catalogue/import", async (requete) => {
+    const utilisateur = await utilisateurDeLaRequete(requete);
+    exigeRole(utilisateur, [...ROLES_ECRITURE_CATALOGUE]);
+    const { csv } = schemaImport.parse(requete.body);
+    const resultat = await importerCatalogueCsv(csv);
+    return { succes: true, donnees: resultat };
   });
 }
