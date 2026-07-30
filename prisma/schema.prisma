@@ -270,6 +270,24 @@ enum TypeClient {
   INSTITUTION_ETATIQUE
 }
 
+// Une commande suffit à faire exister un client dans /admin/clients (voir
+// modules/clients/service.ts), mais l'entreprise a une liste de clients qui
+// existait avant le CRM — il faut pouvoir les entrer en base sans passer par
+// une commande fictive. Ce modèle porte cette fiche autonome ; dès qu'une
+// commande existe pour le même e-mail, elle reste visible dans la même liste
+// (fusion par e-mail), et modifierClient tient les deux synchronisés.
+model Client {
+  id               String     @id @default(uuid())
+  email            String     @unique
+  nomContact       String
+  entreprise       String?
+  typeClient       TypeClient @default(PARTICULIER)
+  telContact       String
+  adresseLivraison String?
+  creeLe           DateTime   @default(now())
+  majLe            DateTime   @updatedAt
+}
+
 model Commande {
   id                  String          @id @default(uuid())
   numero              String          @unique
