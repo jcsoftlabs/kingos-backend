@@ -29,6 +29,7 @@ export async function calculerTableauDeBord() {
     devisAcceptes,
     facturesImpayees,
     facturesImpayeesDetail,
+    agregatFacture,
     chequesEnAttente,
     facturesPayees12Mois,
     lignesParService,
@@ -47,6 +48,13 @@ export async function calculerTableauDeBord() {
     db.facture.findMany({
       where: { statut: { in: ["EMISE", "PARTIELLEMENT_PAYEE", "EN_RETARD"] } },
       select: { totalCents: true, payeCents: true, envoyeeLe: true, creeLe: true, echeanceLe: true },
+    }),
+    // Cumul depuis le début, hors factures annulées : « combien a-t-on
+    // facturé » et « combien est réellement rentré », indépendamment du mois.
+    db.facture.aggregate({
+      where: { statut: { not: "ANNULEE" } },
+      _sum: { totalCents: true, payeCents: true },
+      _count: { _all: true },
     }),
     // Encaissé sur le papier, pas encore en banque — ni dans le CA, ni dans
     // l'impayé, donc invisible partout ailleurs sur ce tableau de bord.
@@ -165,6 +173,9 @@ export async function calculerTableauDeBord() {
     caDuMoisCents: caDuMois,
     caMoisPrecedentCents: caMoisPrecedent,
     montantImpayeCents: totalImpaye,
+    totalFactureCents: agregatFacture._sum.totalCents ?? 0n,
+    totalEncaisseCents: agregatFacture._sum.payeCents ?? 0n,
+    nbFactures: agregatFacture._count._all,
     anciennetteImpaye: {
       recentCents: anciennete.recentCents,
       moyenCents: anciennete.moyenCents,

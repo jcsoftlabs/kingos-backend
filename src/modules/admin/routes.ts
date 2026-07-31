@@ -116,6 +116,8 @@ export async function routesAdmin(app: FastifyInstance) {
           caDuMoisCents: null,
           caMoisPrecedentCents: null,
           montantImpayeCents: null,
+          totalFactureCents: null,
+          totalEncaisseCents: null,
           montantChequesEnAttenteCents: null,
           anciennetteImpaye: {
             ...tableau.anciennetteImpaye,
