@@ -4,9 +4,12 @@ import { existsSync } from "node:fs";
 import PDFDocument from "pdfkit";
 import { montantHTGEnLettres } from "../../core/montant-en-lettres.js";
 
-// dist/modules/documents/pdf.js → ../../../assets/logo.png (voir Dockerfile,
-// qui copie assets/ à côté de dist/ dans l'image de production).
-const CHEMIN_LOGO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "assets", "logo.png");
+// dist/modules/documents/pdf.js → ../../../assets/logo-facture.png (voir
+// Dockerfile, qui copie assets/ à côté de dist/ dans l'image de production).
+// Recadrée depuis logo.png : le fichier source est un canevas carré 500×500
+// où le logo réel n'occupe qu'une bande de ~138px de haut au centre — mis à
+// l'échelle par hauteur tel quel, il s'écrasait en un filet à peine visible.
+const CHEMIN_LOGO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "assets", "logo-facture.png");
 
 interface LigneContenu {
   serviceNom: string;
@@ -123,11 +126,11 @@ export function genererPdfDocument(params: {
     // le type et le numéro sautent aux yeux avant même de lire le détail.
     const hautEntete = 40;
     if (existsSync(CHEMIN_LOGO)) {
-      doc.image(CHEMIN_LOGO, 50, hautEntete, { height: 30 });
+      doc.image(CHEMIN_LOGO, 50, hautEntete, { height: 34 });
     } else {
       doc.fillColor(MARINE).fontSize(20).font("Helvetica-Bold").text("KINGO'S", 50, hautEntete + 4);
     }
-    doc.fontSize(8.5).font("Helvetica").fillColor(GRIS).text("Design & Impression Professionnelle", 50, hautEntete + 36);
+    doc.fontSize(8.5).font("Helvetica").fillColor(GRIS).text("Design & Impression Professionnelle", 50, hautEntete + 40);
 
     const badgeX = 372;
     const badgeW = 190;
@@ -156,7 +159,7 @@ export function genererPdfDocument(params: {
       doc.text(`${params.dateLimite.libelle} : ${dateFormatee}`, badgeX, yMeta, { width: badgeW, align: "right" });
     }
 
-    let y = Math.max(hautEntete + 36 + 12, yMeta + 14, hautEntete + 68);
+    let y = Math.max(hautEntete + 40 + 12, yMeta + 14, hautEntete + 68);
     doc.moveTo(50, y).lineTo(562, y).strokeColor(BLEU).lineWidth(1.5).stroke();
     y += 16;
 
