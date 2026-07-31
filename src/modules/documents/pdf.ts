@@ -39,10 +39,13 @@ interface ContenuDocument {
 }
 
 const MARINE = "#1A124B";
-const MAGENTA = "#E6008C";
 const GRIS = "#5F4EA0";
-const MARINE_CLAIR = "#DAD4EC";
-const CREME = "#F8F5DF";
+// Bleu du modèle de facture fourni — couleur cyan officielle de la charte
+// Kingo's (bande bleue du globe du logo, cf. tailwind.config.ts), pas une
+// teinte arbitraire : elle existait déjà dans la palette de marque.
+const BLEU = "#00A0E6";
+const BLEU_CLAIR = "#E6F6FD";
+const BLEU_BORDURE = "#CCEDFB";
 const BLANC = "#FFFFFF";
 
 // Les dates d'un document financier sont ancrées au fuseau d'Haïti, jamais à
@@ -129,7 +132,7 @@ export function genererPdfDocument(params: {
     const badgeX = 372;
     const badgeW = 190;
     const badgeH = 44;
-    doc.roundedRect(badgeX, hautEntete, badgeW, badgeH, 4).fill(MAGENTA);
+    doc.roundedRect(badgeX, hautEntete, badgeW, badgeH, 4).fill(BLEU);
     doc
       .fillColor(BLANC)
       .font("Helvetica-Bold")
@@ -154,7 +157,7 @@ export function genererPdfDocument(params: {
     }
 
     let y = Math.max(hautEntete + 36 + 12, yMeta + 14, hautEntete + 68);
-    doc.moveTo(50, y).lineTo(562, y).strokeColor(MAGENTA).lineWidth(1.5).stroke();
+    doc.moveTo(50, y).lineTo(562, y).strokeColor(BLEU).lineWidth(1.5).stroke();
     y += 16;
 
     // Émetteur (texte simple, sous le logo) / Client (encadré mis en valeur —
@@ -177,10 +180,10 @@ export function genererPdfDocument(params: {
     const boiteClientX = 306;
     const boiteClientW = 206;
     const boiteClientH = 84;
-    doc.roundedRect(boiteClientX - 10, yIdentite - 8, boiteClientW + 20, boiteClientH, 5).fill(CREME);
+    doc.roundedRect(boiteClientX - 10, yIdentite - 8, boiteClientW + 20, boiteClientH, 5).fill(BLEU_CLAIR);
     let yc = yIdentite;
     doc
-      .fillColor(MAGENTA)
+      .fillColor(BLEU)
       .font("Helvetica-Bold")
       .fontSize(7.5)
       .text(params.type === "FACTURE" ? "FACTURÉ À" : "DEVIS POUR", boiteClientX, yc, { width: boiteClientW });
@@ -199,14 +202,17 @@ export function genererPdfDocument(params: {
     doc.text(contenu.client.email, boiteClientX, yc, { width: boiteClientW });
 
     y = Math.max(y, yIdentite - 8 + boiteClientH) + 14;
-    doc.moveTo(50, y).lineTo(562, y).strokeColor(MARINE_CLAIR).lineWidth(1).stroke();
+    doc.moveTo(50, y).lineTo(562, y).strokeColor(BLEU_BORDURE).lineWidth(1).stroke();
     y += 15;
 
-    // Tableau des lignes — en-tête plein fond marine, lignes alternées pour
-    // guider l'œil sur un devis à plusieurs lignes.
+    // Tableau des lignes — en-tête plein fond bleu, lignes alternées, et un
+    // vrai quadrillage (bordure extérieure + séparateurs de colonnes en
+    // pointillés) plutôt qu'un simple alignement de texte : c'est la grille
+    // du modèle fourni, pas seulement ses couleurs.
     const colonnes = { designation: 58, specs: 218, qte: 388, pu: 425, total: 495 };
+    const separateursX = [213, 383, 421, 488];
     const yEnteteTableau = y;
-    doc.rect(50, yEnteteTableau, 512, 20).fill(MARINE);
+    doc.rect(50, yEnteteTableau, 512, 20).fill(BLEU);
     doc.font("Helvetica-Bold").fontSize(8).fillColor(BLANC);
     doc.text("DÉSIGNATION", colonnes.designation, yEnteteTableau + 6);
     doc.text("SPÉCIFICATIONS", colonnes.specs, yEnteteTableau + 6);
@@ -224,7 +230,7 @@ export function genererPdfDocument(params: {
       const hauteurLigne = Math.max(hauteurDesignation, hauteurSpecs, 12) + 8;
 
       if (indexLigne % 2 === 1) {
-        doc.rect(50, y - 3, 512, hauteurLigne).fill(CREME);
+        doc.rect(50, y - 3, 512, hauteurLigne).fill(BLEU_CLAIR);
       }
       doc.fillColor(GRIS).font("Helvetica").fontSize(8.5);
       doc.text(ligne.serviceNom, colonnes.designation, y, { width: 150 });
@@ -234,13 +240,22 @@ export function genererPdfDocument(params: {
       doc.text(formaterHTG(ligne.totalCents), colonnes.total, y, { width: 67, align: "right" });
 
       y += hauteurLigne;
+      doc.moveTo(50, y).lineTo(562, y).strokeColor(BLEU_BORDURE).lineWidth(0.5).stroke();
       indexLigne++;
     }
 
-    doc.moveTo(50, y).lineTo(562, y).strokeColor(MARINE_CLAIR).lineWidth(1).stroke();
+    // Bordure extérieure du tableau + séparateurs de colonnes en pointillés,
+    // dessinés une fois la hauteur totale connue (en-tête + toutes les lignes).
+    const yTableBas = y;
+    doc.lineWidth(1).strokeColor(BLEU_BORDURE).rect(50, yEnteteTableau, 512, yTableBas - yEnteteTableau).stroke();
+    doc.dash(2, { space: 2 });
+    for (const xs of separateursX) {
+      doc.moveTo(xs, yEnteteTableau).lineTo(xs, yTableBas).strokeColor(BLEU_BORDURE).lineWidth(0.75).stroke();
+    }
+    doc.undash();
     y += 12;
 
-    // Totaux — encadré crème pour le détail, barre pleine marine pour le
+    // Totaux — encadré bleu clair pour le détail, barre pleine bleue pour le
     // total final, qui doit rester le chiffre le plus visible de la page.
     const totalsX = 318;
     const totalsW = 194;
@@ -254,7 +269,8 @@ export function genererPdfDocument(params: {
       lignesTotaux.push({ libelle: `Taxe (${contenu.taxeTauxPct}%)`, valeur: formaterHTG(contenu.taxeCents) });
     }
     const hauteurDetail = lignesTotaux.length * 15 + 12;
-    doc.roundedRect(totalsX, y, totalsW, hauteurDetail, 4).fill(CREME);
+    doc.rect(totalsX, y, totalsW, hauteurDetail).fill(BLEU_CLAIR);
+    doc.lineWidth(1).strokeColor(BLEU_BORDURE).rect(totalsX, y, totalsW, hauteurDetail).stroke();
     let yt = y + 8;
     doc.font("Helvetica").fontSize(9).fillColor(GRIS);
     for (const l of lignesTotaux) {
@@ -262,10 +278,10 @@ export function genererPdfDocument(params: {
       doc.text(l.valeur, totalsX + 12, yt, { width: totalsW - 24, align: "right" });
       yt += 15;
     }
-    y += hauteurDetail + 4;
+    y += hauteurDetail;
 
     const hauteurTotal = 26;
-    doc.rect(totalsX, y, totalsW, hauteurTotal).fill(MARINE);
+    doc.rect(totalsX, y, totalsW, hauteurTotal).fill(BLEU);
     doc.font("Helvetica-Bold").fontSize(11).fillColor(BLANC);
     doc.text("TOTAL", totalsX + 12, y + 7, { width: 90 });
     doc.text(formaterHTG(contenu.totalCents), totalsX + 12, y + 7, { width: totalsW - 24, align: "right" });
@@ -279,7 +295,7 @@ export function genererPdfDocument(params: {
     // Modalités de paiement — "où et comment payer" n'a aucun sens une fois
     // la facture réglée (trouvé en relisant un PDF tamponné PAYÉ, qui
     // affichait encore les coordonnées bancaires et "paiement sur place").
-    // Présenté en encart (liseré magenta) pour se distinguer du reste.
+    // Présenté en encart (liseré bleu) pour se distinguer du reste.
     let titrePaiement = "MODALITÉS DE PAIEMENT";
     const lignesPaiement: string[] = [];
     if (params.statut === "PAYEE") {
@@ -303,8 +319,8 @@ export function genererPdfDocument(params: {
 
     const paddingEncart = 10;
     const hauteurEncart = paddingEncart * 2 + 13 + lignesPaiement.length * 12;
-    doc.rect(50, y, 4, hauteurEncart).fill(MAGENTA);
-    doc.rect(54, y, 508, hauteurEncart).fill(CREME);
+    doc.rect(50, y, 4, hauteurEncart).fill(BLEU);
+    doc.rect(54, y, 508, hauteurEncart).fill(BLEU_CLAIR);
     let yp = y + paddingEncart;
     doc.fillColor(MARINE).font("Helvetica-Bold").fontSize(9).text(titrePaiement, 66, yp);
     yp += 14;
@@ -321,7 +337,7 @@ export function genererPdfDocument(params: {
     // basse par défaut de pdfkit à 742pt sur une page Letter de 792pt).
     // Trouvé en relisant le PDF réellement généré : à 740pt le pied de page
     // basculait tout seul sur une seconde page blanche.
-    doc.moveTo(50, 700).lineTo(562, 700).strokeColor(MAGENTA).lineWidth(1).stroke();
+    doc.moveTo(50, 700).lineTo(562, 700).strokeColor(BLEU).lineWidth(1).stroke();
     doc
       .font("Helvetica")
       .fontSize(7.5)
