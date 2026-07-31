@@ -828,6 +828,31 @@ model MessageContact {
   creeLe    DateTime  @default(now())
 }
 
+// Requête hors catalogue — un besoin qui ne rentre pas dans le configurateur
+// de devis (service sur mesure, réparation, conseil...). Distinct de
+// MessageContact : suivi par statut, propre à la vitrine "je ne trouve pas
+// ce qu'il me faut" plutôt qu'un formulaire de contact générique.
+enum StatutDemande {
+  NOUVELLE
+  EN_COURS
+  TRAITEE
+  REJETEE
+}
+
+model DemandeSpeciale {
+  id            String        @id @default(uuid())
+  nomContact    String
+  emailContact  String
+  telContact    String?
+  description   String
+  statut        StatutDemande @default(NOUVELLE)
+  notesInternes String?
+  creeLe        DateTime      @default(now())
+  traiteeLe     DateTime?
+
+  @@index([statut, creeLe])
+}
+
 // ─────────────────────────────────────────────────────────────
 // 9. INVENTAIRE
 // ─────────────────────────────────────────────────────────────
