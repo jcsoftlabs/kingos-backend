@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ErreurValidation } from "../../core/erreurs.js";
 import { exigerBackOffice, utilisateurOptionnel } from "../../core/auth-requete.js";
-import { masquerMontantsSiNecessaire } from "../../core/portee.js";
+import { masquerMontantsSiNecessaire, ROLES_BACK_OFFICE } from "../../core/portee.js";
 import {
   schemaCreationCommande,
   creerCommande,
@@ -25,7 +25,8 @@ export async function routesCommandes(app: FastifyInstance) {
 
     const utilisateur = await utilisateurOptionnel(requete);
     const entree = schemaCreationCommande.parse(requete.body);
-    const commande = await creerCommande(entree, cleIdempotence, utilisateur?.id);
+    const estBackOffice = !!utilisateur && ROLES_BACK_OFFICE.includes(utilisateur.role);
+    const commande = await creerCommande(entree, cleIdempotence, utilisateur?.id, estBackOffice ? entree.contratId : undefined);
     return { succes: true, donnees: commande };
   });
 

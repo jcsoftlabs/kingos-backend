@@ -43,9 +43,9 @@ model Utilisateur {
   creeLe            DateTime  @default(now())
   majLe             DateTime  @updatedAt
 
-  sessions   Session[]
-  commandes  Commande[]
-  notations  NotationRessource[]
+  sessions  Session[]
+  commandes Commande[]
+  notations NotationRessource[]
 
   @@index([role, actif])
 }
@@ -116,26 +116,26 @@ model CategorieService {
 }
 
 model Service {
-  id             String            @id @default(uuid())
-  categorieId    String
-  slug           String            @unique
-  nom            String
-  resume         String
-  description    String
-  mode           ModeTarification
-  unite          String?
-  prixBaseCents  BigInt            @default(0)
-  prixMinCents   BigInt            @default(0)
-  delaiJours     Int               @default(3)
-  surfaceMinFt2  Decimal?          @db.Decimal(10, 4)
-  surfaceMaxFt2  Decimal?          @db.Decimal(10, 4)
-  quantiteMin    Int               @default(1)
-  quantiteMax    Int?
-  fichierRequis  Boolean           @default(true)
-  visible        Boolean           @default(true)
-  ordre          Int               @default(0)
-  seoTitre       String?
-  seoDescription String?
+  id                   String           @id @default(uuid())
+  categorieId          String
+  slug                 String           @unique
+  nom                  String
+  resume               String
+  description          String
+  mode                 ModeTarification
+  unite                String?
+  prixBaseCents        BigInt           @default(0)
+  prixMinCents         BigInt           @default(0)
+  delaiJours           Int              @default(3)
+  surfaceMinFt2        Decimal?         @db.Decimal(10, 4)
+  surfaceMaxFt2        Decimal?         @db.Decimal(10, 4)
+  quantiteMin          Int              @default(1)
+  quantiteMax          Int?
+  fichierRequis        Boolean          @default(true)
+  visible              Boolean          @default(true)
+  ordre                Int              @default(0)
+  seoTitre             String?
+  seoDescription       String?
   // Matière consommée en production, pour le décrément automatique du stock
   // (voir modules/inventaire/service.ts) — optionnel : un service peut très
   // bien n'être lié à aucun article suivi en inventaire.
@@ -143,15 +143,15 @@ model Service {
   // Quantité d'unité d'ArticleInventaire consommée par unité vendue : par
   // ligne (mode QUANTITE) ou par pied carré (mode SURFACE, multiplié par
   // LigneCommande.surfaceFt2).
-  consommationParUnite Decimal?     @db.Decimal(10, 4)
-  creeLe         DateTime          @default(now())
-  majLe          DateTime          @updatedAt
+  consommationParUnite Decimal?         @db.Decimal(10, 4)
+  creeLe               DateTime         @default(now())
+  majLe                DateTime         @updatedAt
 
   categorie         CategorieService   @relation(fields: [categorieId], references: [id])
   articleInventaire ArticleInventaire? @relation(fields: [articleInventaireId], references: [id])
-  attributs AttributService[]
-  paliers   PalierQuantite[]
-  medias    MediaService[]
+  attributs         AttributService[]
+  paliers           PalierQuantite[]
+  medias            MediaService[]
 
   @@index([categorieId, visible, ordre])
 }
@@ -302,33 +302,74 @@ model Client {
   majLe            DateTime   @updatedAt
 }
 
+// ─────────────────────────────────────────────────────────────
+// 3B. CONTRATS
+// ─────────────────────────────────────────────────────────────
+
+// Accord récurrent avec un client institutionnel (école, entreprise) —
+// conditions négociées une fois (remise, délai de paiement) plutôt que
+// redemandées à chaque commande. Rattacher une commande à un contrat
+// (Commande.contratId) ne change rien à la machine à états : la commande
+// peut toujours sauter le devis (BROUILLON → EN_ATTENTE_PAIEMENT), le
+// contrat sert de référence pour le staff, pas d'automatisation de prix.
+enum StatutContrat {
+  ACTIF
+  SUSPENDU
+  RESILIE
+  EXPIRE
+}
+
+model Contrat {
+  id                 String        @id @default(uuid())
+  numero             String        @unique
+  emailClient        String
+  nomClient          String
+  entreprise         String?
+  objet              String
+  dateDebut          DateTime
+  dateFin            DateTime?
+  statut             StatutContrat @default(ACTIF)
+  remisePct          Decimal?      @db.Decimal(5, 2)
+  delaiPaiementJours Int?
+  notes              String?
+  creeLe             DateTime      @default(now())
+  majLe              DateTime      @updatedAt
+
+  commandes Commande[]
+
+  @@index([emailClient])
+  @@index([statut])
+}
+
 model Commande {
-  id                  String          @id @default(uuid())
-  numero              String          @unique
+  id                  String         @id @default(uuid())
+  numero              String         @unique
   utilisateurId       String?
+  contratId           String?
   emailContact        String
   nomContact          String
   telContact          String
   entreprise          String?
-  typeClient          TypeClient      @default(PARTICULIER)
-  statut              StatutCommande  @default(BROUILLON)
-  modeLivraison       ModeLivraison   @default(RETRAIT_ATELIER)
+  typeClient          TypeClient     @default(PARTICULIER)
+  statut              StatutCommande @default(BROUILLON)
+  modeLivraison       ModeLivraison  @default(RETRAIT_ATELIER)
   adresseLivraison    String?
-  fraisLivraisonCents BigInt          @default(0)
-  sousTotalCents      BigInt          @default(0)
-  remiseCents         BigInt          @default(0)
-  taxeCents           BigInt          @default(0)
-  totalCents          BigInt          @default(0)
-  devise              String          @default("HTG")
+  fraisLivraisonCents BigInt         @default(0)
+  sousTotalCents      BigInt         @default(0)
+  remiseCents         BigInt         @default(0)
+  taxeCents           BigInt         @default(0)
+  totalCents          BigInt         @default(0)
+  devise              String         @default("HTG")
   notesClient         String?
   notesInternes       String?
   dateSouhaitee       DateTime?
   dateLivraisonPrevue DateTime?
-  cleIdempotence      String?         @unique
-  creeLe              DateTime        @default(now())
-  majLe               DateTime        @updatedAt
+  cleIdempotence      String?        @unique
+  creeLe              DateTime       @default(now())
+  majLe               DateTime       @updatedAt
 
   utilisateur Utilisateur?        @relation(fields: [utilisateurId], references: [id])
+  contrat     Contrat?            @relation(fields: [contratId], references: [id])
   lignes      LigneCommande[]
   fichiers    FichierClient[]
   devis       Devis[]
@@ -342,7 +383,7 @@ model Commande {
 }
 
 model LigneCommande {
-  id                String  @id @default(uuid())
+  id                String   @id @default(uuid())
   commandeId        String
   // Nullable : une ligne de vente rapide (guichet — ex. "photocopies 40
   // pages") n'a pas forcément de service catalogué correspondant. Dans ce
@@ -351,9 +392,9 @@ model LigneCommande {
   serviceId         String?
   serviceNom        String
   descriptionLibre  String?
-  specifications     Json
+  specifications    Json
   detailPrix        Json
-  quantite          Int     @default(1)
+  quantite          Int      @default(1)
   surfaceFt2        Decimal? @db.Decimal(10, 4)
   prixUnitaireCents BigInt
   totalCents        BigInt
@@ -630,15 +671,15 @@ model Paiement {
 }
 
 model EvenementWebhook {
-  id          String    @id @default(uuid())
+  id          String      @id @default(uuid())
   fournisseur Fournisseur
   signature   String?
-  empreinte   String    @unique
+  empreinte   String      @unique
   corps       Json
   entetes     Json
   traiteLe    DateTime?
   erreur      String?
-  recuLe      DateTime  @default(now())
+  recuLe      DateTime    @default(now())
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -657,24 +698,24 @@ model CategorieRessource {
 }
 
 model Ressource {
-  id                String    @id @default(uuid())
-  slug              String    @unique
+  id                String                   @id @default(uuid())
+  slug              String                   @unique
   categorieId       String
   titre             String
   description       String?
   motsCles          String[]
   formats           Json
   apercuPublicId    String
-  licence           String    @default("GRATUIT_USAGE_LIBRE")
+  licence           String                   @default("GRATUIT_USAGE_LIBRE")
   auteur            String?
-  nbTelechargements Int       @default(0)
-  noteMoyenne       Decimal   @default(0) @db.Decimal(3, 2)
-  nbNotes           Int       @default(0)
-  publiee           Boolean   @default(false)
-  miseEnAvant       Boolean   @default(false)
+  nbTelechargements Int                      @default(0)
+  noteMoyenne       Decimal                  @default(0) @db.Decimal(3, 2)
+  nbNotes           Int                      @default(0)
+  publiee           Boolean                  @default(false)
+  miseEnAvant       Boolean                  @default(false)
   rechercheVec      Unsupported("tsvector")?
   publieeLe         DateTime?
-  creeLe            DateTime  @default(now())
+  creeLe            DateTime                 @default(now())
 
   categorie       CategorieRessource        @relation(fields: [categorieId], references: [id])
   telechargements TelechargementRessource[]

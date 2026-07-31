@@ -28,6 +28,10 @@ export const schemaCreationCommande = z.object({
   modeLivraison: z.enum(["RETRAIT_ATELIER", "LIVRAISON_PORT_AU_PRINCE", "LIVRAISON_PROVINCE"]).default("RETRAIT_ATELIER"),
   adresseLivraison: z.string().optional(),
   notesClient: z.string().optional(),
+  // Ignoré côté route si l'appelant n'est pas back-office (voir routes.ts) —
+  // rattacher une commande à un contrat n'est pas sensible en soi (aucun prix
+  // n'en dépend automatiquement), mais reste une décision du staff.
+  contratId: z.string().uuid().optional(),
   lignes: z.array(schemaLigne).min(1),
 });
 
@@ -41,7 +45,12 @@ export type EntreeCreationCommande = z.infer<typeof schemaCreationCommande>;
  * @param utilisateurId dérivé de la session côté route — jamais du corps de
  * la requête (plan §11.2 : l'appartenance d'une commande ne se déclare pas).
  */
-export async function creerCommande(entree: EntreeCreationCommande, cleIdempotence?: string, utilisateurId?: string) {
+export async function creerCommande(
+  entree: EntreeCreationCommande,
+  cleIdempotence?: string,
+  utilisateurId?: string,
+  contratId?: string,
+) {
   if (cleIdempotence) {
     const existante = await db.commande.findUnique({ where: { cleIdempotence } });
     if (existante) return existante;
@@ -65,6 +74,7 @@ export async function creerCommande(entree: EntreeCreationCommande, cleIdempoten
       data: {
         numero,
         utilisateurId,
+        contratId,
         emailContact: entree.emailContact,
         nomContact: entree.nomContact,
         telContact: entree.telContact,

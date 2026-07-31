@@ -1,6 +1,6 @@
 import { db } from "./db.js";
 
-export type TypeDocument = "CMD" | "DEV" | "FAC" | "AVO";
+export type TypeDocument = "CMD" | "DEV" | "FAC" | "AVO" | "CTR";
 
 /**
  * Numérotation atomique via la fonction SQL `prochain_numero` (migration
