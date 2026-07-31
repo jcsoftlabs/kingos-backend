@@ -28,6 +28,8 @@ export const schemaCreationService = z.object({
   quantiteMin: z.number().int().positive().default(1),
   quantiteMax: z.number().int().positive().optional(),
   fichierRequis: z.boolean().default(true),
+  articleInventaireId: z.string().uuid().nullable().optional(),
+  consommationParUnite: z.coerce.number().positive().nullable().optional(),
 });
 
 export const schemaModificationService = schemaCreationService.partial().extend({

@@ -5,6 +5,7 @@ import { prochainNumero } from "../../core/numerotation.js";
 import { simulerPrixAvecService } from "../catalogue/simulation.js";
 import { verifierTransition } from "./machine-etats.js";
 import { envoyerConfirmationCommande } from "../../core/email.js";
+import { decrementerStockPourCommande } from "../inventaire/service.js";
 import type { StatutCommande, Role } from "@prisma/client";
 
 const schemaLigne = z.object({
@@ -191,6 +192,18 @@ export async function changerStatutCommande(params: {
       },
     });
 
+    return misAJour;
+  }).then(async (misAJour) => {
+    // Hors transaction, volontairement : un souci d'inventaire (article
+    // introuvable, etc.) ne doit jamais faire échouer le passage en
+    // production déjà validé et enregistré.
+    if (params.nouveauStatut === "EN_PRODUCTION") {
+      try {
+        await decrementerStockPourCommande(params.commandeId);
+      } catch (erreur) {
+        console.error(`Décrément de stock échoué pour la commande ${params.commandeId} :`, erreur);
+      }
+    }
     return misAJour;
   });
 }

@@ -136,10 +136,19 @@ model Service {
   ordre          Int               @default(0)
   seoTitre       String?
   seoDescription String?
+  // Matière consommée en production, pour le décrément automatique du stock
+  // (voir modules/inventaire/service.ts) — optionnel : un service peut très
+  // bien n'être lié à aucun article suivi en inventaire.
+  articleInventaireId  String?
+  // Quantité d'unité d'ArticleInventaire consommée par unité vendue : par
+  // ligne (mode QUANTITE) ou par pied carré (mode SURFACE, multiplié par
+  // LigneCommande.surfaceFt2).
+  consommationParUnite Decimal?     @db.Decimal(10, 4)
   creeLe         DateTime          @default(now())
   majLe          DateTime          @updatedAt
 
-  categorie CategorieService   @relation(fields: [categorieId], references: [id])
+  categorie         CategorieService   @relation(fields: [categorieId], references: [id])
+  articleInventaire ArticleInventaire? @relation(fields: [articleInventaireId], references: [id])
   attributs AttributService[]
   paliers   PalierQuantite[]
   medias    MediaService[]
@@ -776,6 +785,53 @@ model MessageContact {
   message   String
   traiteLe  DateTime?
   creeLe    DateTime  @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────
+// 9. INVENTAIRE
+// ─────────────────────────────────────────────────────────────
+
+enum TypeMouvementStock {
+  ENTREE
+  SORTIE
+  AJUSTEMENT
+}
+
+model ArticleInventaire {
+  id               String   @id @default(uuid())
+  nom              String
+  categorie        String?
+  unite            String
+  quantiteActuelle Decimal  @default(0) @db.Decimal(12, 4)
+  seuilAlerte      Decimal  @default(0) @db.Decimal(12, 4)
+  notes            String?
+  creeLe           DateTime @default(now())
+  majLe            DateTime @updatedAt
+
+  mouvements MouvementStock[]
+  services   Service[]
+
+  @@index([nom])
+}
+
+model MouvementStock {
+  id         String             @id @default(uuid())
+  articleId  String
+  type       TypeMouvementStock
+  quantite   Decimal            @db.Decimal(12, 4)
+  motif      String?
+  // Renseigné automatiquement quand le mouvement vient du passage en
+  // production d'une commande (voir modules/commandes/service.ts) — permet
+  // de retrouver "pourquoi ce stock a bougé" sans deviner depuis le motif
+  // texte libre.
+  commandeId String?
+  auteurId   String?
+  creeLe     DateTime           @default(now())
+
+  article ArticleInventaire @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([articleId, creeLe])
+  @@index([commandeId])
 }
 
 model AbonneNewsletter {
