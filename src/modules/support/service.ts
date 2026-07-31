@@ -127,6 +127,11 @@ export async function definirDisponibilite(utilisateurId: string, disponible: bo
   return db.utilisateur.update({ where: { id: utilisateurId }, data: { disponibleSupport: disponible } });
 }
 
+export async function disponibiliteDe(utilisateurId: string): Promise<boolean> {
+  const compte = await db.utilisateur.findUnique({ where: { id: utilisateurId }, select: { disponibleSupport: true } });
+  return compte?.disponibleSupport ?? false;
+}
+
 export function validerMessage(corps: unknown): string {
   const { contenu } = schemaMessage.parse(corps);
   return contenu;

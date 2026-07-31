@@ -11,6 +11,7 @@ import {
   obtenirConversationAdmin,
   fermerConversation,
   definirDisponibilite,
+  disponibiliteDe,
   estAgentDisponible,
   validerMessage,
   exigerUuid,
@@ -82,6 +83,13 @@ export async function routesSupport(app: FastifyInstance) {
     await utilisateurDeLaRequete(requete).then((u) => exigeRole(u, ROLES_BACK_OFFICE));
     const conversation = await fermerConversation(requete.params.id);
     return { succes: true, donnees: conversation };
+  });
+
+  app.get("/api/admin/support/disponibilite", async (requete) => {
+    const utilisateur = await utilisateurDeLaRequete(requete);
+    exigeRole(utilisateur, ROLES_BACK_OFFICE);
+    const disponible = await disponibiliteDe(utilisateur.id);
+    return { succes: true, donnees: { disponibleSupport: disponible } };
   });
 
   app.patch("/api/admin/support/disponibilite", async (requete) => {
