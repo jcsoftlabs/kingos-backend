@@ -29,6 +29,7 @@ import { routesVentesRapides } from "./modules/ventes-rapides/routes.js";
 import { routesExports } from "./modules/exports/routes.js";
 import { routesAdminContenu } from "./modules/admin/contenu-routes.js";
 import { routesEspace } from "./modules/espace/routes.js";
+import { routesSupport } from "./modules/support/routes.js";
 
 // Fastify (via JSON.stringify) ne sait pas sérialiser BigInt nativement, et les
 // montants sont des BigInt partout (plan §2.1 règle 2). Un BigInt.prototype.toJSON
@@ -153,6 +154,7 @@ await app.register(routesVentesRapides);
 await app.register(routesExports);
 await app.register(routesAdminContenu);
 await app.register(routesEspace);
+await app.register(routesSupport);
 
 async function arretGracieux(signal: string) {
   app.log.info(`Signal ${signal} reçu — arrêt en cours`);

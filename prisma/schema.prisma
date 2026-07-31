@@ -34,6 +34,11 @@ model Utilisateur {
   codeClient        String?   @unique
   emailVerifie      DateTime?
   actif             Boolean   @default(true)
+  // Bascule manuelle "je suis disponible pour le chat" — un membre du staff
+  // back-office l'active depuis /admin/support ; le widget public affiche le
+  // chat en direct si au moins un compte back-office actif l'a à true,
+  // sinon le formulaire de suivi (cf. ConversationSupport.origineSansAgent).
+  disponibleSupport Boolean   @default(false)
   derniereConnexion DateTime?
   creeLe            DateTime  @default(now())
   majLe             DateTime  @updatedAt
@@ -716,6 +721,50 @@ model JournalAudit {
 
   @@index([entite, entiteId, creeLe])
   @@index([acteurId, creeLe])
+}
+
+// Chat en ligne du site vitrine (bulle en bas à droite). Si aucun agent
+// n'est disponible au moment où le visiteur écrit, la conversation reste
+// ouverte mais `origineSansAgent` le signale — c'est un message laissé pour
+// suivi plutôt qu'un échange en direct, et le staff la retrouve dans la même
+// liste que les conversations classiques.
+enum StatutConversationSupport {
+  OUVERTE
+  FERMEE
+}
+
+enum ExpediteurMessageSupport {
+  CLIENT
+  STAFF
+}
+
+model ConversationSupport {
+  id                 String                    @id @default(uuid())
+  nomContact         String
+  emailContact       String
+  telContact         String?
+  statut             StatutConversationSupport @default(OUVERTE)
+  origineSansAgent   Boolean                   @default(false)
+  derniereActiviteLe DateTime                  @default(now())
+  creeLe             DateTime                  @default(now())
+
+  messages MessageSupport[]
+
+  @@index([statut, derniereActiviteLe])
+}
+
+model MessageSupport {
+  id             String                   @id @default(uuid())
+  conversationId String
+  expediteur     ExpediteurMessageSupport
+  auteurId       String?
+  contenu        String
+  luParStaffLe   DateTime?
+  creeLe         DateTime                 @default(now())
+
+  conversation ConversationSupport @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, creeLe])
 }
 
 model MessageContact {
