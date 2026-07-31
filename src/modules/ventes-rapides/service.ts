@@ -97,6 +97,7 @@ export async function creerVenteRapide(entree: EntreeVenteRapide, acteur: { id: 
         nif: parametres.nif,
         banques: parametres.banques,
         moncashNumero: parametres.moncashNumero,
+        tauxChangeUSD: parametres.tauxChangeUSD?.toString() ?? null,
       },
       client: {
         nom: entree.nomContact || "Client de passage",

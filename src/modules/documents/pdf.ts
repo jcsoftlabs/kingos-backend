@@ -29,6 +29,8 @@ interface ContenuDocument {
     nif?: string | null;
     banques: { banque: string; titulaire: string; numeroCompte: string; type?: string }[];
     moncashNumero?: string | null;
+    /** HTG pour 1 USD, figé au moment de l'émission — voir formaterHTGEtUSD. */
+    tauxChangeUSD?: string | null;
   };
   client: { nom: string; email: string; telephone: string; entreprise?: string | null };
   lignes: LigneContenu[];
@@ -80,6 +82,17 @@ function formaterHTG(centimesTexte: string): string {
   return `${formate.replace(/[  ]/g, " ")} HTG`;
 }
 
+// Certains clients paient en dollars, d'autres en gourdes — la facture
+// affiche donc les deux dès qu'un taux de change est configuré dans
+// /admin/parametres (§ ParametresEntreprise.tauxChangeUSD). Sans taux
+// configuré, retombe sur l'affichage HTG seul (comportement inchangé).
+function formaterUSD(centimesTexte: string, tauxChangeUSD: string): string {
+  const montantHTG = Number(centimesTexte) / 100;
+  const taux = Number(tauxChangeUSD);
+  const montantUSD = montantHTG / taux;
+  return `${new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(montantUSD)} USD`;
+}
+
 function formaterSpecifications(specs: Record<string, unknown>): string {
   const parties: string[] = [];
   if (specs.largeurPouces && specs.hauteurPouces) {
@@ -120,6 +133,7 @@ export function genererPdfDocument(params: {
 
     const { contenu } = params;
     const libelleType = params.type === "FACTURE" ? "FACTURE" : "DEVIS";
+    const taux = contenu.emetteur.tauxChangeUSD;
 
     // En-tête — logo à gauche, bloc de couleur pleine à droite avec le type de
     // document (facture/devis), à l'image des gabarits de facturation courants :
@@ -283,11 +297,17 @@ export function genererPdfDocument(params: {
     }
     y += hauteurDetail;
 
-    const hauteurTotal = 26;
+    const hauteurTotal = taux ? 34 : 26;
     doc.rect(totalsX, y, totalsW, hauteurTotal).fill(BLEU);
     doc.font("Helvetica-Bold").fontSize(11).fillColor(BLANC);
     doc.text("TOTAL", totalsX + 12, y + 7, { width: 90 });
     doc.text(formaterHTG(contenu.totalCents), totalsX + 12, y + 7, { width: totalsW - 24, align: "right" });
+    if (taux) {
+      doc.font("Helvetica").fontSize(9).text(`~ ${formaterUSD(contenu.totalCents, taux)}`, totalsX + 12, y + 20, {
+        width: totalsW - 24,
+        align: "right",
+      });
+    }
     y += hauteurTotal + 14;
 
     doc.font("Helvetica-Oblique").fontSize(8).fillColor(GRIS);
@@ -307,7 +327,8 @@ export function genererPdfDocument(params: {
     } else if (params.statut === "PARTIELLEMENT_PAYEE" && params.payeCents !== undefined) {
       titrePaiement = "PAIEMENT";
       const soldeCents = (BigInt(contenu.totalCents) - BigInt(params.payeCents)).toString();
-      lignesPaiement.push(`Réglé à ce jour : ${formaterHTG(params.payeCents)} — solde restant : ${formaterHTG(soldeCents)}.`);
+      const soldeUSD = taux ? ` (~ ${formaterUSD(soldeCents, taux)})` : "";
+      lignesPaiement.push(`Réglé à ce jour : ${formaterHTG(params.payeCents)} — solde restant : ${formaterHTG(soldeCents)}${soldeUSD}.`);
       for (const banque of contenu.emetteur.banques) {
         lignesPaiement.push(`${banque.banque} — ${banque.titulaire} — Compte n° ${banque.numeroCompte}`);
       }

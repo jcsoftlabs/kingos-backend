@@ -48,6 +48,7 @@ export async function genererDevisDepuisCommande(commandeId: string) {
       nif: parametres.nif,
       banques: parametres.banques,
       moncashNumero: parametres.moncashNumero,
+      tauxChangeUSD: parametres.tauxChangeUSD?.toString() ?? null,
     },
     client: {
       nom: commande.nomContact,
