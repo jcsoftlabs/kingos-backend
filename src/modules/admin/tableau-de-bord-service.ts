@@ -28,7 +28,8 @@ export async function calculerTableauDeBord() {
     devisEnvoyes,
     devisAcceptes,
     facturesImpayees,
-    agregatImpaye,
+    facturesImpayeesDetail,
+    chequesEnAttente,
     facturesPayees12Mois,
     lignesParService,
     commandes30j,
@@ -40,9 +41,19 @@ export async function calculerTableauDeBord() {
     db.devis.count({ where: { statut: { in: ["ENVOYE", "ACCEPTE", "REFUSE", "EXPIRE"] } } }),
     db.devis.count({ where: { statut: "ACCEPTE" } }),
     db.facture.count({ where: { statut: { in: ["EMISE", "PARTIELLEMENT_PAYEE", "EN_RETARD"] } } }),
-    db.facture.aggregate({
+    // Détail plutôt qu'un simple _sum : le total de l'impayé ne dit pas s'il
+    // s'agit de factures récentes (normal) ou de créances qui traînent —
+    // c'est l'ancienneté qui distingue les deux (balance âgée ci-dessous).
+    db.facture.findMany({
       where: { statut: { in: ["EMISE", "PARTIELLEMENT_PAYEE", "EN_RETARD"] } },
-      _sum: { totalCents: true, payeCents: true },
+      select: { totalCents: true, payeCents: true, envoyeeLe: true, creeLe: true, echeanceLe: true },
+    }),
+    // Encaissé sur le papier, pas encore en banque — ni dans le CA, ni dans
+    // l'impayé, donc invisible partout ailleurs sur ce tableau de bord.
+    db.paiement.aggregate({
+      where: { statut: "A_ENCAISSER" },
+      _sum: { montantCents: true },
+      _count: { _all: true },
     }),
     // Sert à la fois au CA du mois, au mois précédent et à la courbe 12 mois.
     db.facture.findMany({
@@ -121,7 +132,31 @@ export async function calculerTableauDeBord() {
     }))
     .sort((a, b) => (b.caCents > a.caCents ? 1 : b.caCents < a.caCents ? -1 : 0));
 
-  const totalImpaye = (agregatImpaye._sum.totalCents ?? 0n) - (agregatImpaye._sum.payeCents ?? 0n);
+  // ─── Balance âgée de l'impayé ───
+  // Ancienneté comptée depuis l'émission de la facture (envoyeeLe, sinon
+  // creeLe qui existe toujours). `enRetard` compte à part les factures dont
+  // l'échéance convenue est dépassée — une facture de 70 jours avec 90 jours
+  // d'échéance négociée n'est pas en retard, seulement ancienne.
+  const maintenant = Date.now();
+  const JOUR_MS = 24 * 60 * 60 * 1000;
+  const anciennete = { recentCents: 0n, moyenCents: 0n, ancienCents: 0n, nbEnRetard: 0, montantEnRetardCents: 0n };
+
+  for (const f of facturesImpayeesDetail) {
+    const restant = f.totalCents - f.payeCents;
+    if (restant <= 0n) continue;
+
+    const jours = Math.floor((maintenant - (f.envoyeeLe ?? f.creeLe).getTime()) / JOUR_MS);
+    if (jours <= 30) anciennete.recentCents += restant;
+    else if (jours <= 60) anciennete.moyenCents += restant;
+    else anciennete.ancienCents += restant;
+
+    if (f.echeanceLe && f.echeanceLe.getTime() < maintenant) {
+      anciennete.nbEnRetard++;
+      anciennete.montantEnRetardCents += restant;
+    }
+  }
+
+  const totalImpaye = anciennete.recentCents + anciennete.moyenCents + anciennete.ancienCents;
 
   return {
     commandesParStatut: commandesParStatut.map((c) => ({ statut: c.statut, total: c._count._all })),
@@ -130,6 +165,15 @@ export async function calculerTableauDeBord() {
     caDuMoisCents: caDuMois,
     caMoisPrecedentCents: caMoisPrecedent,
     montantImpayeCents: totalImpaye,
+    anciennetteImpaye: {
+      recentCents: anciennete.recentCents,
+      moyenCents: anciennete.moyenCents,
+      ancienCents: anciennete.ancienCents,
+      nbEnRetard: anciennete.nbEnRetard,
+      montantEnRetardCents: anciennete.montantEnRetardCents,
+    },
+    chequesEnAttente: chequesEnAttente._count._all,
+    montantChequesEnAttenteCents: chequesEnAttente._sum.montantCents ?? 0n,
     panierMoyenCents,
     nouveauxClients30j: nouveauxClients,
     commandes30j: commandes30j.length,
