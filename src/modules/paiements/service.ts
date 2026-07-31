@@ -29,7 +29,13 @@ async function notifierPaiementConfirme(commandeId: string, factureId: string, m
 export const schemaPaiementManuel = z.object({
   factureId: z.string().uuid(),
   fournisseur: z.enum(["ESPECES", "VIREMENT", "CHEQUE"]),
+  // Montant tel que saisi, dans la devise choisie ci-dessous. Converti en
+  // gourdes avant d'être imputé sur la facture (voir convertirEnGourdes).
   montantCents: z.coerce.bigint().positive(),
+  // Beaucoup de clients règlent en dollars alors que la facture est libellée
+  // en gourdes — on garde trace de ce qui a réellement été remis, et du taux
+  // appliqué ce jour-là, pas seulement de l'équivalent en gourdes.
+  deviseEncaissement: z.enum(["HTG", "USD"]).default("HTG"),
   banqueEmettrice: z.string().optional(),
   numeroCheque: z.string().optional(),
   dateCheque: z.coerce.date().optional(),
@@ -40,6 +46,37 @@ export const schemaPaiementManuel = z.object({
 });
 
 export type EntreePaiementManuel = z.infer<typeof schemaPaiementManuel>;
+
+/**
+ * Convertit un montant saisi en dollars vers son équivalent en gourdes, au
+ * taux configuré dans /admin/parametres. La facture reste libellée en gourdes :
+ * c'est cet équivalent qui réduit le solde, jamais le montant en dollars.
+ *
+ * Le taux est figé dans le paiement (Paiement.tauxChange) : une facture soldée
+ * il y a six mois reste explicable même si le taux a bougé depuis.
+ */
+/** Arithmétique pure, isolée de la lecture du taux pour rester testable. */
+export function convertirDeviseEnGourdes(montantCents: bigint, taux: number): bigint {
+  // Les centimes s'annulent : (USD × 100) × taux = (USD × taux) × 100.
+  return BigInt(Math.round(Number(montantCents) * taux));
+}
+
+async function convertirEnGourdes(
+  montantCents: bigint,
+  devise: "HTG" | "USD",
+): Promise<{ gourdesCents: bigint; taux: number | null }> {
+  if (devise === "HTG") return { gourdesCents: montantCents, taux: null };
+
+  const parametres = await db.parametresEntreprise.findUnique({ where: { id: 1 } });
+  const taux = parametres?.tauxChangeUSD ? Number(parametres.tauxChangeUSD) : null;
+  if (!taux || taux <= 0) {
+    throw new ErreurValidation(
+      "Aucun taux de change configuré — renseignez-le dans Paramètres avant d'encaisser en dollars.",
+    );
+  }
+
+  return { gourdesCents: convertirDeviseEnGourdes(montantCents, taux), taux };
+}
 
 /**
  * Recalcule le statut d'une facture depuis la somme de ses paiements REUSSI —
@@ -98,6 +135,17 @@ async function recalculerFacture(tx: Parameters<Parameters<typeof db.$transactio
  * c'est l'identité qui apparaît dans le journal d'audit et sur `saisiParId`.
  */
 export async function enregistrerPaiementManuel(entree: EntreePaiementManuel, acteur: { id: string; role: string }) {
+  // Hors transaction : lecture seule du taux, et une erreur de configuration
+  // doit remonter avant d'ouvrir quoi que ce soit en base.
+  const { gourdesCents: montantGourdesCents, taux } = await convertirEnGourdes(
+    entree.montantCents,
+    entree.deviseEncaissement,
+  );
+  const enDevise = entree.deviseEncaissement === "USD";
+  const detailDevise = enDevise
+    ? ` (réglé ${(Number(entree.montantCents) / 100).toFixed(2)} USD au taux de ${taux})`
+    : "";
+
   const paiement = await db.$transaction(async (tx) => {
     const facture = await tx.facture.findUnique({ where: { id: entree.factureId } });
     if (!facture) throw new ErreurNonTrouve("Facture", entree.factureId);
@@ -105,9 +153,10 @@ export async function enregistrerPaiementManuel(entree: EntreePaiementManuel, ac
     if (facture.statut === "PAYEE") throw new ErreurConflit(`Facture ${facture.numero} est déjà intégralement payée`);
 
     const soldeRestant = facture.totalCents - facture.payeCents;
-    if (entree.montantCents > soldeRestant) {
+    if (montantGourdesCents > soldeRestant) {
+      const detail = enDevise ? ` (${formaterHTG(montantGourdesCents)} au taux de ${taux})` : "";
       throw new ErreurValidation(
-        `Montant (${entree.montantCents}) supérieur au solde restant (${soldeRestant}) sur la facture ${facture.numero}`,
+        `Montant${detail} supérieur au solde restant (${formaterHTG(soldeRestant)}) sur la facture ${facture.numero}`,
       );
     }
 
@@ -124,7 +173,7 @@ export async function enregistrerPaiementManuel(entree: EntreePaiementManuel, ac
         commandeId: facture.commandeId,
         factureId: facture.id,
         fournisseur: entree.fournisseur,
-        montantCents: entree.montantCents,
+        montantCents: montantGourdesCents,
         statut: estImmediat ? "REUSSI" : "A_ENCAISSER",
         cleIdempotence: randomUUID(),
         expireLe: entree.dateEncaissementPrevue ?? new Date(),
@@ -138,7 +187,13 @@ export async function enregistrerPaiementManuel(entree: EntreePaiementManuel, ac
         factureId: facture.id,
         fournisseur: entree.fournisseur,
         statut: estImmediat ? "REUSSI" : "A_ENCAISSER",
-        montantCents: entree.montantCents,
+        // montantCents est toujours en gourdes (devise de la facture) ; ce qui
+        // a réellement changé de mains vit dans montantEncaisseCents.
+        montantCents: montantGourdesCents,
+        devise: "HTG",
+        montantEncaisseCents: entree.montantCents,
+        deviseEncaissement: entree.deviseEncaissement,
+        tauxChange: taux,
         refFournisseur: reference,
         banqueEmettrice: entree.banqueEmettrice,
         numeroCheque: entree.numeroCheque,
@@ -154,8 +209,8 @@ export async function enregistrerPaiementManuel(entree: EntreePaiementManuel, ac
         commandeId: facture.commandeId,
         type: "PAIEMENT_ENREGISTRE",
         message: estImmediat
-          ? `Paiement ${entree.fournisseur} de ${entree.montantCents} c reçu sur la facture ${facture.numero}`
-          : `Chèque n°${entree.numeroCheque} de ${entree.montantCents} c reçu sur la facture ${facture.numero}, en attente d'encaissement`,
+          ? `Paiement ${entree.fournisseur} de ${formaterHTG(montantGourdesCents)}${detailDevise} reçu sur la facture ${facture.numero}`
+          : `Chèque n°${entree.numeroCheque} de ${formaterHTG(montantGourdesCents)}${detailDevise} reçu sur la facture ${facture.numero}, en attente d'encaissement`,
       },
     });
 
@@ -167,7 +222,10 @@ export async function enregistrerPaiementManuel(entree: EntreePaiementManuel, ac
         entite: "Facture",
         entiteId: facture.id,
         apres: {
-          montantCents: entree.montantCents.toString(),
+          montantCents: montantGourdesCents.toString(),
+          montantEncaisseCents: entree.montantCents.toString(),
+          deviseEncaissement: entree.deviseEncaissement,
+          tauxChange: taux,
           fournisseur: entree.fournisseur,
           statutPaiement: estImmediat ? "REUSSI" : "A_ENCAISSER",
         },
