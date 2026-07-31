@@ -134,7 +134,22 @@ async function recalculerFacture(tx: Parameters<Parameters<typeof db.$transactio
  * @param acteur toujours dérivé de la session côté route (jamais du corps) —
  * c'est l'identité qui apparaît dans le journal d'audit et sur `saisiParId`.
  */
-export async function enregistrerPaiementManuel(entree: EntreePaiementManuel, acteur: { id: string; role: string }) {
+export async function enregistrerPaiementManuel(
+  entree: EntreePaiementManuel,
+  acteur: { id: string; role: string },
+  cleIdempotence?: string,
+) {
+  // Rejouer la même clé renvoie le paiement déjà enregistré au lieu d'en
+  // créer un second. Cas réel : la transaction dépasse le délai côté client
+  // et renvoie une erreur alors que l'écriture est passée — le staff voit
+  // l'échec, réessaie, et encaisserait deux fois le même acompte.
+  if (cleIdempotence) {
+    const dejaVue = await db.intentionPaiement.findUnique({ where: { cleIdempotence } });
+    if (dejaVue) {
+      const existant = await db.paiement.findUnique({ where: { intentionId: dejaVue.id } });
+      if (existant) return existant;
+    }
+  }
   // Hors transaction : lecture seule du taux, et une erreur de configuration
   // doit remonter avant d'ouvrir quoi que ce soit en base.
   const { gourdesCents: montantGourdesCents, taux } = await convertirEnGourdes(
@@ -145,6 +160,9 @@ export async function enregistrerPaiementManuel(entree: EntreePaiementManuel, ac
   const detailDevise = enDevise
     ? ` (réglé ${(Number(entree.montantCents) / 100).toFixed(2)} USD au taux de ${taux})`
     : "";
+
+  // Un rejeu ne doit pas renvoyer un second e-mail de confirmation au client.
+  let rejeu = false;
 
   const paiement = await db.$transaction(async (tx) => {
     const facture = await tx.facture.findUnique({ where: { id: entree.factureId } });
@@ -175,7 +193,7 @@ export async function enregistrerPaiementManuel(entree: EntreePaiementManuel, ac
         fournisseur: entree.fournisseur,
         montantCents: montantGourdesCents,
         statut: estImmediat ? "REUSSI" : "A_ENCAISSER",
-        cleIdempotence: randomUUID(),
+        cleIdempotence: cleIdempotence ?? randomUUID(),
         expireLe: entree.dateEncaissementPrevue ?? new Date(),
       },
     });
@@ -237,9 +255,33 @@ export async function enregistrerPaiementManuel(entree: EntreePaiementManuel, ac
     }
 
     return paiement;
+  }, {
+    // Le défaut de Prisma (5 s) est calibré pour une transaction courte ; ici
+    // il y a six allers-retours en série (facture, intention, paiement,
+    // événement, audit, recalcul). Sur un lien lent, le client abandonnait
+    // alors que l'écriture aboutissait côté base — d'où des paiements
+    // fantômes. On laisse la transaction aller au bout ; l'idempotence
+    // ci-dessus couvre le cas où le client a malgré tout renoncé.
+    timeout: 20_000,
+    maxWait: 10_000,
+  }).catch(async (erreur: unknown) => {
+    // Deux requêtes concurrentes portant la même clé : la seconde bute sur la
+    // contrainte d'unicité. Le paiement de la première fait foi.
+    const estCollisionCle =
+      cleIdempotence !== undefined &&
+      typeof erreur === "object" &&
+      erreur !== null &&
+      (erreur as { code?: string }).code === "P2002";
+    if (!estCollisionCle) throw erreur;
+
+    const gagnante = await db.intentionPaiement.findUnique({ where: { cleIdempotence: cleIdempotence! } });
+    const existant = gagnante ? await db.paiement.findUnique({ where: { intentionId: gagnante.id } }) : null;
+    if (!existant) throw erreur;
+    rejeu = true;
+    return existant;
   });
 
-  if (paiement.statut === "REUSSI") {
+  if (!rejeu && paiement.statut === "REUSSI") {
     await notifierPaiementConfirme(paiement.commandeId, entree.factureId, paiement.montantCents);
   }
 

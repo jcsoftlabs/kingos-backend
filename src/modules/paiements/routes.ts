@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { utilisateurDeLaRequete } from "../../core/auth-requete.js";
 import { exigeRole } from "../../core/portee.js";
+import { ErreurValidation } from "../../core/erreurs.js";
 import { schemaPaiementManuel, enregistrerPaiementManuel, encaisserCheque, rejeterCheque, listerChequesEnAttente } from "./service.js";
 
 // Enregistrer/encaisser/rejeter un paiement déplace de l'argent réel — trouvé
@@ -21,8 +22,15 @@ export async function routesPaiements(app: FastifyInstance) {
   app.post("/api/paiements/manuel", async (requete) => {
     const utilisateur = await utilisateurDeLaRequete(requete);
     exigeRole(utilisateur, [...ROLES_FINANCE]);
+    // Même convention que la création de commande : rejouer la requête avec
+    // la même clé renvoie le paiement déjà enregistré au lieu d'en créer un
+    // second (encaissement = opération non rejouable par nature).
+    const cleIdempotence = requete.headers["idempotency-key"];
+    if (cleIdempotence !== undefined && typeof cleIdempotence !== "string") {
+      throw new ErreurValidation("En-tête Idempotency-Key invalide");
+    }
     const entree = schemaPaiementManuel.parse(requete.body);
-    const paiement = await enregistrerPaiementManuel(entree, utilisateur);
+    const paiement = await enregistrerPaiementManuel(entree, utilisateur, cleIdempotence);
     return { succes: true, donnees: paiement };
   });
 
